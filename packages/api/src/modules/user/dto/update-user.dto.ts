@@ -1,6 +1,7 @@
 import { type UserCreateSourceType } from "@buildingai/constants";
 import { type ActionValueType } from "@buildingai/constants/shared/account-log.constants";
 import {
+    IsArray,
     IsEmail,
     IsIn,
     IsInt,
@@ -120,6 +121,15 @@ export class UpdateUserDto {
     @IsOptional()
     @IsString({ message: "会员等级到期时间必须是字符串" })
     levelEndTime?: string;
+    /**
+     * 用户所属部门ID数组
+     *
+     * 一个用户可属于多个部门，为空数组表示解除部门关联
+     */
+    @IsOptional()
+    @IsArray({ message: "部门ID数组格式不正确" })
+    @IsUUID(4, { each: true, message: "部门ID必须是有效的UUID格式" })
+    departmentIds?: string[];
 }
 
 export class UpdateUserBalanceDto {

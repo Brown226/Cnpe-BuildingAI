@@ -40,6 +40,7 @@ import { join } from "path";
 import { AiModule } from "./ai/ai.module";
 import { ConfigModule as AppConfigModule } from "./config/config.module";
 import { DecorateModule } from "./decorate/decorate.module";
+import { DepartmentModule } from "./department/department.module";
 import { FinanceModule } from "./finance/finance.module";
 import { MenuModule } from "./menu/menu.module";
 import { NoticeModule } from "./notice/notice.module";
@@ -103,6 +104,7 @@ export class AppModule {
                 AiModule,
                 AppConfigModule,
                 DecorateModule,
+                DepartmentModule,
                 FinanceModule,
                 HealthModule,
                 MenuModule,

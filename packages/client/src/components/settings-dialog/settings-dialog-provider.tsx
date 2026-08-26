@@ -131,10 +131,18 @@ export function SettingsDialogProvider({ children }: { children: React.ReactNode
             return websiteConfig?.features?.cdk ?? false;
           }
 
+          if (item.id === "wallet") {
+            return websiteConfig?.features?.recharge ?? false;
+          }
+
           return true;
         }),
       })).filter((group) => group.items.length > 0),
-    [websiteConfig?.features?.cdk, websiteConfig?.features?.membership],
+    [
+      websiteConfig?.features?.cdk,
+      websiteConfig?.features?.membership,
+      websiteConfig?.features?.recharge,
+    ],
   );
   const availablePageIds = React.useMemo(
     () => navGroups.flatMap((group) => group.items.map((item) => item.id)),

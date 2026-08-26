@@ -23,11 +23,14 @@ import { BatchUpdateUserDto } from "@modules/user/dto/batch-update-user.dto";
 import { CreateUserDto } from "@modules/user/dto/create-user.dto";
 import { BatchDeleteUserDto, DeleteUserDto } from "@modules/user/dto/delete-user.dto";
 import { type LoginSettingsConfig } from "@modules/user/dto/login-settings.dto";
+import { AdAuthService, type AdAuthConfig } from "@common/modules/auth/services/ad-auth.service";
 import { QueryUserDto } from "@modules/user/dto/query-user.dto";
 import { UpdateUserBalanceDto, UpdateUserDto } from "@modules/user/dto/update-user.dto";
 import { UserService } from "@modules/user/services/user.service";
-import { Body, Delete, Get, Inject, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Delete, Get, Inject, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { Like } from "typeorm";
+import * as XLSX from "xlsx";
 
 /**
  * 用户管理控制器
@@ -48,6 +51,7 @@ export class UserConsoleController extends BaseController {
         private readonly menuService: MenuService,
         @Inject(RolePermissionService)
         private readonly rolePermissionService: RolePermissionService,
+        private readonly adAuthService: AdAuthService,
         private readonly roleService: RoleService,
         private readonly dictService: DictService,
         @Inject(MembershipOrderService)
@@ -263,6 +267,91 @@ export class UserConsoleController extends BaseController {
     }
 
     /**
+     * 员工 Excel 导入
+     *
+     * 解析员工名单 Excel（列：登录账号/真实姓名/密码/角色/一级部门/二级部门/邮箱），
+     * 自动建部门 + 批量创建用户，返回导入报告（含跳过明细）
+     *
+     * @param file 上传的 Excel 文件
+     * @returns 导入报告
+     */
+    @Post("import-excel")
+    @Permissions({
+        code: "import-excel",
+        name: "导入员工",
+        description: "通过 Excel 批量导入员工",
+    })
+    @UseInterceptors(FileInterceptor("file"))
+    async importExcel(@UploadedFile() file: Express.Multer.File) {
+        if (!file) {
+            throw HttpErrorFactory.badRequest("请上传文件");
+        }
+
+        // 解析 Excel
+        let workbook: XLSX.WorkBook;
+        try {
+            workbook = XLSX.read(file.buffer, { type: "buffer" });
+        } catch (e) {
+            throw HttpErrorFactory.badRequest("文件解析失败，请上传有效的 Excel 文件");
+        }
+
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        if (!sheet) {
+            throw HttpErrorFactory.badRequest("Excel 中无工作表");
+        }
+
+        // 按行解析（header:1 原始数组，自行识别表头列）
+        const rows: Array<string[]> = XLSX.utils.sheet_to_json(sheet, {
+            header: 1,
+            raw: false,
+            defval: "",
+        }) as Array<Array<any>>;
+
+        if (rows.length < 2) {
+            throw HttpErrorFactory.badRequest("Excel 无数据行");
+        }
+
+        // 识别表头列索引
+        const header = rows[0].map((h) => String(h ?? "").trim());
+        const colIndex = (name: string) => {
+            const i = header.findIndex(
+                (h) => h.includes(name) || (name === "账号" && h.includes("登录")),
+            );
+            return i >= 0 ? i : -1;
+        };
+        const idxUsername = colIndex("登录");
+        const idxRealName = colIndex("姓名");
+        const idxEmail = colIndex("邮箱");
+        const idxDept1 = colIndex("一级部门");
+        const idxDept2 = colIndex("二级部门");
+
+        if (idxUsername < 0) {
+            throw HttpErrorFactory.badRequest("未找到「登录账号」列");
+        }
+
+        const employeeRows = rows.slice(1).map((cells: Array<any>, i) => {
+            const str = (idx: number) =>
+                idx >= 0 && cells[idx] !== undefined && cells[idx] !== null
+                    ? String(cells[idx]).trim()
+                    : "";
+            return {
+                username: str(idxUsername),
+                realName: idxRealName >= 0 ? str(idxRealName) : undefined,
+                email: idxEmail >= 0 ? str(idxEmail) : undefined,
+                department1: idxDept1 >= 0 ? str(idxDept1) : undefined,
+                department2: idxDept2 >= 0 ? str(idxDept2) : undefined,
+                rowNumber: i + 2, // Excel 行号（含表头）
+            };
+        }).filter((r) => r.username);
+
+        if (employeeRows.length === 0) {
+            throw HttpErrorFactory.badRequest("未解析到有效数据行");
+        }
+
+        return await this.userService.importEmployees(employeeRows);
+    }
+
+    /**
      * 重置用户密码
      *
      * @param id 用户ID
@@ -420,6 +509,61 @@ export class UserConsoleController extends BaseController {
     @BuildFileUrl(["**.avatar"])
     async create(@Body() createUserDto: CreateUserDto) {
         return await this.userService.createUser(createUserDto);
+    }
+
+    /**
+     * 获取 AD 认证配置
+     *
+     * @returns 当前 AD 认证配置
+     */
+    @Get("ad-config")
+    @Permissions({
+        code: "get-ad-config",
+        name: "获取 AD 配置",
+        description: "获取 AD 域认证配置",
+    })
+    async getAdConfig() {
+        return await this.adAuthService.getConfig();
+    }
+
+    /**
+     * 设置 AD 认证配置
+     *
+     * @param config AD 认证配置（局部更新）
+     * @returns 更新后的 AD 认证配置
+     */
+    @Post("ad-config")
+    @Permissions({
+        code: "set-ad-config",
+        name: "设置 AD 配置",
+        description: "设置 AD 域认证配置",
+    })
+    async setAdConfig(@Body() config: Partial<AdAuthConfig>) {
+        return await this.adAuthService.setConfig(config);
+    }
+
+    /**
+     * AD 连通性测试
+     *
+     * 使用当前配置尝试绑定，返回 ok/error
+     */
+    @Post("ad-config/test")
+    @Permissions({
+        code: "test-ad-config",
+        name: "测试 AD 配置",
+        description: "测试 AD 域认证连通性",
+    })
+    async testAdConfig(@Body() body: { username?: string; password?: string }) {
+        const config = await this.adAuthService.getConfig();
+        if (!config.host || !config.baseDN) {
+            throw HttpErrorFactory.badRequest("AD 未配置 host 或 baseDN");
+        }
+        // 传入的测试账号密码覆盖配置验证（若无则用配置自身字段）
+        const result = await this.adAuthService.verify(
+            body.username ?? "",
+            body.password ?? "",
+        );
+        return result ? { ok: true } : { ok: false };
     }
 
     @Get("searchUser")

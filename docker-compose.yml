@@ -115,6 +115,8 @@ services:
             REDIS_HOST: ${REDIS_HOST:-redis}
             REDIS_PORT: ${REDIS_PORT:-6379}
             REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+            # 企业免费模式开关：false = 全链路不扣费、不拦截（内网部署默认关闭计费）
+            SERVER_BILLING_ENABLED: ${SERVER_BILLING_ENABLED:-false}
         command: |
             sh -c '
             set -e

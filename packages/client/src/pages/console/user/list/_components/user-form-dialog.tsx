@@ -3,12 +3,14 @@ import {
   type CreateUserDto,
   type Role,
   type UpdateUserDto,
+  useAllDepartmentsQuery,
   useCreateUserMutation,
   useRolesQuery,
   useUpdateUserMutation,
   useUserDetailQuery,
 } from "@buildingai/services/console";
 import { Button } from "@buildingai/ui/components/ui/button";
+import { Checkbox } from "@buildingai/ui/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +71,7 @@ const formSchema = z
     status: z.boolean().optional(),
     power: z.number().optional(),
     realName: z.string().max(50, "真实姓名不能超过50个字符").optional(),
+    departmentIds: z.array(z.string()).optional(),
   })
   .refine(
     () => {
@@ -96,6 +99,7 @@ export const UserFormDialog = ({ open, onOpenChange, userId, onSuccess }: UserFo
   const [membershipDialogOpen, setMembershipDialogOpen] = useState(false);
 
   const { data: roles } = useRolesQuery();
+  const { data: allDepartments } = useAllDepartmentsQuery();
 
   const { data: userDetail, refetch: refetchUserDetail } = useUserDetailQuery(userId || "", {
     enabled: isEditMode && open,
@@ -113,6 +117,7 @@ export const UserFormDialog = ({ open, onOpenChange, userId, onSuccess }: UserFo
       roleId: "",
       status: true,
       realName: "",
+      departmentIds: [],
     },
   });
 
@@ -130,6 +135,7 @@ export const UserFormDialog = ({ open, onOpenChange, userId, onSuccess }: UserFo
           status: userDetail.status === BooleanNumber.YES,
           power: userDetail.power,
           realName: userDetail.realName || "",
+          departmentIds: userDetail.departments?.map((d) => d.id) || [],
         });
       } else {
         form.reset({
@@ -143,6 +149,7 @@ export const UserFormDialog = ({ open, onOpenChange, userId, onSuccess }: UserFo
           status: true,
           power: 0,
           realName: "",
+          departmentIds: [],
         });
       }
     }
@@ -182,6 +189,7 @@ export const UserFormDialog = ({ open, onOpenChange, userId, onSuccess }: UserFo
       if (submitValues.roleId === "no-role") {
         dto.roleId = "";
       }
+      dto.departmentIds = submitValues.departmentIds || [];
       updateMutation.mutate({ id: userId, dto });
     } else {
       if (!submitValues.password) {
@@ -202,6 +210,7 @@ export const UserFormDialog = ({ open, onOpenChange, userId, onSuccess }: UserFo
       if (submitValues.roleId === "no-role") {
         dto.roleId = "";
       }
+      dto.departmentIds = submitValues.departmentIds || [];
       createMutation.mutate(dto);
     }
   };
@@ -425,6 +434,44 @@ export const UserFormDialog = ({ open, onOpenChange, userId, onSuccess }: UserFo
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="departmentIds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>所属部门</FormLabel>
+                    {allDepartments && allDepartments.length > 0 ? (
+                      <div className="grid max-h-40 grid-cols-2 gap-2 overflow-y-auto rounded-md border p-2">
+                        {allDepartments.map((dept) => {
+                          const checked = (field.value || []).includes(dept.id);
+                          return (
+                            <label
+                              key={dept.id}
+                              className="flex cursor-pointer items-center gap-2 text-sm"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(v) => {
+                                  const current = field.value || [];
+                                  const next = v
+                                    ? [...current, dept.id]
+                                    : current.filter((id) => id !== dept.id);
+                                  field.onChange(next);
+                                }}
+                              />
+                              {dept.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <FormDescription>暂无部门，请先在「部门管理」中创建</FormDescription>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               {isEditMode && (
                 <FormItem>

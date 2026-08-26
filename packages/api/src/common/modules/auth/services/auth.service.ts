@@ -20,6 +20,7 @@ import * as bcrypt from "bcryptjs";
 import { isEmail, isMobilePhone } from "class-validator";
 
 import { RegisterDto } from "../dto/register.dto";
+import { AdAuthService } from "./ad-auth.service";
 import { RolePermissionService } from "./role-permission.service";
 import { UserTokenService } from "./user-token.service";
 
@@ -35,6 +36,7 @@ export class AuthService extends BaseService<User> {
         private userRepository: Repository<User>,
         private rolePermissionService: RolePermissionService,
         public userTokenService: UserTokenService,
+        private adAuthService: AdAuthService,
         @InjectRepository(DepartmentUserIndex)
         private readonly departmentUserIndexRepository: Repository<DepartmentUserIndex>,
         @InjectRepository(Department)
@@ -273,13 +275,28 @@ export class AuthService extends BaseService<User> {
             );
         }
 
-        // 验证密码
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (!isPasswordValid) {
-            throw HttpErrorFactory.unauthorized(
-                "Invalid email, account, phone number, or password.",
-                BusinessCode.LOGIN_FAILED,
-            );
+        // 验证密码：优先走 AD 认证（若启用），否则用本地 bcrypt
+        const adConfig = await this.adAuthService.getConfig();
+        let isPasswordValid = false;
+
+        if (adConfig.enabled) {
+            const adPassed = await this.adAuthService.verify(username, password);
+            if (!adPassed) {
+                throw HttpErrorFactory.unauthorized(
+                    "Invalid email, account, phone number, or password.",
+                    BusinessCode.LOGIN_FAILED,
+                );
+            }
+            isPasswordValid = true;
+        } else {
+            // 本地密码验证
+            isPasswordValid = await bcrypt.compare(password, user.password);
+            if (!isPasswordValid) {
+                throw HttpErrorFactory.unauthorized(
+                    "Invalid email, account, phone number, or password.",
+                    BusinessCode.LOGIN_FAILED,
+                );
+            }
         }
 
         // 检查用户状态

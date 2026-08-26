@@ -207,6 +207,14 @@ export class BaseBillingService {
             associationUserId,
         } = options;
 
+        // 全局计费开关兜底：SERVER_BILLING_ENABLED=false 时为企业免费模式，跳过一切扣费
+        if (process.env.SERVER_BILLING_ENABLED === "false") {
+            this.logger.debug(
+                `Billing globally disabled (SERVER_BILLING_ENABLED=false), skip deduction for user ${userId}`,
+            );
+            return;
+        }
+
         if (amount <= 0) {
             this.logger.debug(`No power to deduct for user ${userId}`);
             return;

@@ -1,9 +1,22 @@
 import type { LoginType } from "@buildingai/constants";
 import { LOGIN_TYPE } from "@buildingai/constants/shared/auth";
 import { useLoginSettingsQuery, useSetLoginSettingsMutation } from "@buildingai/services/console";
+import {
+  useAdConfigQuery,
+  useSetAdConfigMutation,
+  useTestAdConfigMutation,
+} from "@buildingai/services/console";
 import { PermissionGuard } from "@buildingai/ui/components/auth/permission-guard";
 import { Button } from "@buildingai/ui/components/ui/button";
 import { Checkbox } from "@buildingai/ui/components/ui/checkbox";
+import { Input } from "@buildingai/ui/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@buildingai/ui/components/ui/select";
 import {
   Field,
   FieldDescription,
@@ -51,6 +64,70 @@ const SystemLoginConfigIndexPage = () => {
   );
   const [allowMultipleLogin, setAllowMultipleLogin] = useState(defaultConfig.allowMultipleLogin);
   const [showPolicyAgreement, setShowPolicyAgreement] = useState(defaultConfig.showPolicyAgreement);
+
+  // AD 认证配置状态
+  const { data: adConfig } = useAdConfigQuery();
+  const setAdMutation = useSetAdConfigMutation({
+    onSuccess: () => toast.success("AD 配置已保存"),
+    onError: (e) => toast.error(`保存失败: ${e.message}`),
+  });
+  const testAdMutation = useTestAdConfigMutation();
+  const [adEnabled, setAdEnabled] = useState(false);
+  const [adHost, setAdHost] = useState("");
+  const [adPort, setAdPort] = useState("389");
+  const [adBaseDN, setAdBaseDN] = useState("");
+  const [adBindMode, setAdBindMode] = useState<"upn" | "sam">("sam");
+  const [adUpnDomain, setAdUpnDomain] = useState("");
+  const [adDomain, setAdDomain] = useState("");
+  const [testAccount, setTestAccount] = useState("");
+  const [testPassword, setTestPassword] = useState("");
+
+  const adInitial = useMemo(
+    () => (adConfig ? { ...adConfig } : null),
+    [adConfig],
+  );
+
+  useEffect(() => {
+    if (!adInitial) return;
+    setAdEnabled(adInitial.enabled);
+    setAdHost(adInitial.host || "");
+    setAdPort(String(adInitial.port ?? 389));
+    setAdBaseDN(adInitial.baseDN || "");
+    setAdBindMode(adInitial.bindMode || "sam");
+    setAdUpnDomain(adInitial.upnDomain || "");
+    setAdDomain(adInitial.domain || "");
+  }, [adInitial]);
+
+  const handleSaveAd = () => {
+    if (adEnabled && (!adHost.trim() || !adBaseDN.trim())) {
+      toast.error("启用 AD 认证需填写主机与 BaseDN");
+      return;
+    }
+    setAdMutation.mutate({
+      enabled: adEnabled,
+      host: adHost.trim(),
+      port: parseInt(adPort, 10) || 389,
+      baseDN: adBaseDN.trim(),
+      bindMode: adBindMode,
+      upnDomain: adUpnDomain.trim() || undefined,
+      domain: adDomain.trim() || undefined,
+    });
+  };
+
+  const handleTestAd = () => {
+    if (!adHost.trim() || !adBaseDN.trim()) {
+      toast.error("请先填写 AD 主机与 BaseDN");
+      return;
+    }
+    testAdMutation.mutate(
+      { username: testAccount, password: testPassword },
+      {
+        onSuccess: (res) => {
+          toast.success(res.ok ? "AD 连接测试成功" : "AD 连接测试失败（账号或网络异常）");
+        },
+      },
+    );
+  };
 
   const initialData = useMemo(
     () =>
@@ -205,6 +282,112 @@ const SystemLoginConfigIndexPage = () => {
                 重置设置
               </Button>
             </PermissionGuard>
+          </div>
+
+          {/* AD 域认证配置 */}
+          <div className="border-muted mt-8 rounded-lg border p-4">
+            <h2 className="text-lg font-semibold">AD 域认证</h2>
+            <p className="text-muted-foreground mb-4 text-sm">
+              启用后，账号密码将通过内网 AD（LDAP BIND）验证，替代本地密码校验。
+            </p>
+            <div className="space-y-4">
+              <Field>
+                <div className="flex max-w-sm items-center justify-between gap-4">
+                  <div>
+                    <FieldLabel>启用 AD 认证</FieldLabel>
+                    <FieldDescription>开启后所有账号登录改为 AD 验证</FieldDescription>
+                  </div>
+                  <Switch checked={adEnabled} onCheckedChange={setAdEnabled} />
+                </div>
+              </Field>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <FieldLabel required>AD 服务器</FieldLabel>
+                  <Input value={adHost} onChange={(e) => setAdHost(e.target.value)} placeholder="如 10.30.2.5" />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel required>端口</FieldLabel>
+                  <Input value={adPort} onChange={(e) => setAdPort(e.target.value)} placeholder="389" />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel required>Base DN</FieldLabel>
+                <Input
+                  value={adBaseDN}
+                  onChange={(e) => setAdBaseDN(e.target.value)}
+                  placeholder="OU=cnpe,DC=cnpe,DC=cc"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <FieldLabel>绑定模式</FieldLabel>
+                  <Select value={adBindMode} onValueChange={(v) => setAdBindMode(v as "upn" | "sam")}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sam">SAM（域\账号）</SelectItem>
+                      <SelectItem value="upn">UPN（账号@域名）</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {adBindMode === "upn" ? (
+                  <div className="space-y-2">
+                    <FieldLabel>UPN 域名</FieldLabel>
+                    <Input
+                      value={adUpnDomain}
+                      onChange={(e) => setAdUpnDomain(e.target.value)}
+                      placeholder="cnpe.cc"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <FieldLabel>域（SAM 模式）</FieldLabel>
+                    <Input
+                      value={adDomain}
+                      onChange={(e) => setAdDomain(e.target.value)}
+                      placeholder="CNPE"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="border-muted rounded-lg border p-3">
+                <FieldLabel className="mb-2">连接测试</FieldLabel>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input
+                    value={testAccount}
+                    onChange={(e) => setTestAccount(e.target.value)}
+                    placeholder="测试账号（samAccountName）"
+                  />
+                  <Input
+                    type="password"
+                    value={testPassword}
+                    onChange={(e) => setTestPassword(e.target.value)}
+                    placeholder="测试密码"
+                  />
+                </div>
+                <div className="mt-3 flex items-center gap-3">
+                  <Button variant="outline" size="sm" onClick={handleTestAd} disabled={testAdMutation.isPending}>
+                    {testAdMutation.isPending && <Loader2 className="mr-1 size-3 animate-spin" />}
+                    测试连接
+                  </Button>
+                  <span className="text-muted-foreground text-xs">
+                    使用以上配置尝试绑定（需先保存配置）
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <Button onClick={handleSaveAd} disabled={setAdMutation.isPending} variant="secondary">
+                  {setAdMutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                  保存 AD 配置
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </PermissionGuard>

@@ -44,6 +44,7 @@ export type User = {
     membershipLevel: MembershipLevel | null;
     level?: string | null;
     levelEndTime?: string | null;
+    departments?: SearchUserDepartment[];
 };
 
 export type MembershipLevel = {
@@ -96,6 +97,7 @@ export type CreateUserDto = {
     roleId?: string;
     status?: BooleanNumberType;
     realName?: string;
+    departmentIds?: string[];
 };
 
 export type UpdateUserDto = {
@@ -106,6 +108,7 @@ export type UpdateUserDto = {
     roleId?: string;
     status?: BooleanNumberType;
     realName?: string;
+    departmentIds?: string[];
 };
 
 export type BatchUpdateUserItemDto = {
@@ -416,5 +419,84 @@ export function useUserSubscriptionsQuery(
             }),
         ...options,
         enabled: options?.enabled !== undefined ? options.enabled : !!userId,
+    });
+}
+
+// ===================== 员工 Excel 导入 =====================
+
+export type EmployeeImportReport = {
+    total: number;
+    imported: number;
+    skipped: Array<{
+        row: number;
+        username?: string;
+        reason: string;
+    }>;
+};
+
+/**
+ * Import employees from Excel
+ */
+export function useImportEmployeesMutation(
+    options?: MutationOptionsUtil<EmployeeImportReport, File>,
+) {
+    return useMutation<EmployeeImportReport, Error, File>({
+        mutationFn: (file) => {
+            const formData = new FormData();
+            formData.append("file", file);
+            return consoleHttpClient.post<EmployeeImportReport>("/users/import-excel", formData);
+        },
+        ...options,
+    });
+}
+
+// ===================== AD 认证配置 =====================
+
+export type AdAuthConfig = {
+    enabled: boolean;
+    host: string;
+    port: number;
+    baseDN: string;
+    bindMode: "upn" | "sam";
+    upnDomain?: string;
+    domain?: string;
+    useLdaps?: boolean;
+    timeout?: number;
+};
+
+/**
+ * Get AD auth config
+ */
+export function useAdConfigQuery(options?: QueryOptionsUtil<AdAuthConfig>) {
+    return useQuery<AdAuthConfig>({
+        queryKey: ["users", "ad-config"],
+        queryFn: () => consoleHttpClient.get<AdAuthConfig>("/users/ad-config"),
+        ...options,
+    });
+}
+
+/**
+ * Set AD auth config
+ */
+export function useSetAdConfigMutation(
+    options?: MutationOptionsUtil<AdAuthConfig, Partial<AdAuthConfig>>,
+) {
+    return useMutation<AdAuthConfig, Error, Partial<AdAuthConfig>>({
+        mutationFn: (config) =>
+            consoleHttpClient.post<AdAuthConfig>("/users/ad-config", config),
+        ...options,
+    });
+}
+
+/**
+ * Test AD connectivity
+ */
+export function useTestAdConfigMutation(
+    options?: MutationOptionsUtil<{ ok: boolean }, { username?: string; password?: string }>,
+) {
+    return useMutation<{ ok: boolean }, Error, { username?: string; password?: string }>({
+        mutationFn: (body) =>
+            consoleHttpClient.post<{ ok: boolean }>("/users/ad-config/test", body),
+        ...options,
     });
 }

@@ -41,6 +41,7 @@ import {
   Plus,
   Sparkles,
   Trash2,
+  Upload,
   User as UserIcon,
   Zap,
 } from "lucide-react";
@@ -56,6 +57,7 @@ import { MembershipAdjustmentDialog } from "./_components/membership-adjustment-
 import { ResetPasswordDialog } from "./_components/reset-password-dialog";
 import { SubscriptionRecordsDialog } from "./_components/subscription-records-dialog";
 import { UserFormDialog } from "./_components/user-form-dialog";
+import { ImportEmployeesDialog } from "./_components/import-employees-dialog";
 
 const PAGE_SIZE = 25;
 
@@ -78,6 +80,7 @@ const UserListIndexPage = () => {
   const [balanceAdjustmentUser, setBalanceAdjustmentUser] = useState<User | null>(null);
   const [subscriptionRecordsDialogOpen, setSubscriptionRecordsDialogOpen] = useState(false);
   const [subscriptionRecordsUser, setSubscriptionRecordsUser] = useState<User | null>(null);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Update query params when debounced keyword changes
   useEffect(() => {
@@ -171,6 +174,12 @@ const UserListIndexPage = () => {
               <SelectItem value={String(BooleanNumber.NO)}>已禁用</SelectItem>
             </SelectContent>
           </Select>
+          <PermissionGuard permissions="users:import-excel">
+            <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+              <Upload className="mr-1 size-4" />
+              导入员工
+            </Button>
+          </PermissionGuard>
         </div>
 
         <div className="flex-1">
@@ -365,6 +374,11 @@ const UserListIndexPage = () => {
                         {user.membershipLevel.name}
                       </Badge>
                     )}
+                    {(user.departments ?? []).slice(0, 3).map((dept) => (
+                      <Badge key={dept.id} variant="outline">
+                        {dept.name}
+                      </Badge>
+                    ))}
                   </div>
                   <div>
                     <p className="text-muted-foreground flex items-center gap-1 text-xs">
@@ -425,6 +439,11 @@ const UserListIndexPage = () => {
           userName={subscriptionRecordsUser.nickname || subscriptionRecordsUser.username}
         />
       )}
+      <ImportEmployeesDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onSuccess={() => refetch()}
+      />
     </PageContainer>
   );
 };

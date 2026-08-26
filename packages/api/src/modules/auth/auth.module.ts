@@ -12,6 +12,7 @@ import {
     UserToken,
 } from "@buildingai/db/entities";
 import { AuthService } from "@common/modules/auth/services/auth.service";
+import { AdAuthService } from "@common/modules/auth/services/ad-auth.service";
 import { ExtensionFeatureService } from "@common/modules/auth/services/extension-feature.service";
 import { ExtensionFeatureScanService } from "@common/modules/auth/services/extension-feature-scan.service";
 import { RolePermissionService } from "@common/modules/auth/services/role-permission.service";
@@ -61,6 +62,7 @@ import { AuthWebController } from "./controller/web/auth.controller";
     controllers: [AuthWebController],
     providers: [
         AuthService,
+        AdAuthService,
         ExtensionFeatureScanService,
         ExtensionFeatureService,
         RolePermissionService,
@@ -69,6 +71,7 @@ import { AuthWebController } from "./controller/web/auth.controller";
     ],
     exports: [
         AuthService,
+        AdAuthService,
         ExtensionFeatureScanService,
         ExtensionFeatureService,
         JwtModule,

@@ -25,10 +25,20 @@ export class AgentBillingHandler {
 
     constructor(private readonly appBillingService: AppBillingService) {}
 
+    /**
+     * 全局计费开关：SERVER_BILLING_ENABLED=false 时为企业免费模式，
+     * 不校验余额、不产生任何扣费。
+     */
+    private isBillingEnabled(): boolean {
+        return process.env.SERVER_BILLING_ENABLED !== "false";
+    }
+
     async validateUserPower(
         userId: string,
         billingRule: { power: number; tokens: number } | undefined,
     ): Promise<void> {
+        if (!this.isBillingEnabled()) return;
+
         if (!userId || !billingRule?.tokens || billingRule.power <= 0) return;
 
         const currentPower = await this.appBillingService.getSpendablePower(userId);
@@ -48,6 +58,8 @@ export class AgentBillingHandler {
 
     async deduct(params: AgentBillingDeductParams): Promise<number> {
         const { userId, conversationId, usage, billingRule, isGuest } = params;
+        if (!this.isBillingEnabled()) return 0;
+
         if (!userId || !billingRule?.tokens) return 0;
 
         const totalTokens =
@@ -88,6 +100,8 @@ export class AgentBillingHandler {
     ): Promise<number> {
         if (!userId || !conversationId || !billingRule?.tokens) return 0;
 
+        if (!this.isBillingEnabled()) return 0;
+
         const amount = this.calculateConsumedPower(ESTIMATED_TOKENS_MEMORY, billingRule);
         if (amount <= 0) return 0;
 
@@ -122,6 +136,8 @@ export class AgentBillingHandler {
     ): Promise<number> {
         if (!userId || !conversationId || !billingRule?.tokens) return 0;
 
+        if (!this.isBillingEnabled()) return 0;
+
         const amount = this.calculateConsumedPower(ESTIMATED_TOKENS_PLANNING, billingRule);
         if (amount <= 0) return 0;
 
@@ -155,6 +171,8 @@ export class AgentBillingHandler {
         isGuest?: boolean,
     ): Promise<number> {
         if (!userId || !conversationId || !billingRule?.tokens) return 0;
+
+        if (!this.isBillingEnabled()) return 0;
 
         const amount = this.calculateConsumedPower(ESTIMATED_TOKENS_FOLLOW_UP, billingRule);
         if (amount <= 0) return 0;

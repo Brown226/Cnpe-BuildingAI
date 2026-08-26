@@ -1,4 +1,5 @@
 import {
+    IsArray,
     IsEmail,
     IsIn,
     IsInt,
@@ -104,6 +105,16 @@ export class CreateUserDto {
     @ValidateIf((o) => o.roleId && o.roleId.trim() !== "")
     @IsUUID(4, { message: "角色ID必须是有效的UUID格式" })
     roleId?: string;
+
+    /**
+     * 用户所属部门ID数组
+     *
+     * 一个用户可属于多个部门，为空表示不关联部门
+     */
+    @IsOptional()
+    @IsArray({ message: "部门ID数组格式不正确" })
+    @IsUUID(4, { each: true, message: "部门ID必须是有效的UUID格式" })
+    departmentIds?: string[];
 
     /**
      * 用户状态

@@ -50,6 +50,40 @@ export interface UserMembershipInfo {
 }
 
 /**
+ * 员工 Excel 导入结果条目
+ */
+export interface EmployeeImportRow {
+    /** 登录账号 */
+    username: string;
+    /** 真实姓名 */
+    realName?: string;
+    /** 邮箱 */
+    email?: string;
+    /** 一级部门名 */
+    department1?: string;
+    /** 二级部门名 */
+    department2?: string;
+    /** 原始行号（Excel 从 2 开始） */
+    rowNumber: number;
+}
+
+/**
+ * 员工 Excel 导入结果
+ */
+export interface EmployeeImportReport {
+    /** 总行数 */
+    total: number;
+    /** 成功导入数 */
+    imported: number;
+    /** 跳过列表 */
+    skipped: Array<{
+        row: number;
+        username?: string;
+        reason: string;
+    }>;
+}
+
+/**
  * 用户服务
  */
 @Injectable()
@@ -162,7 +196,51 @@ export class UserService extends BaseService<User> {
             }));
         }
 
+        // 批量附加用户部门信息
+        if (result.items?.length) {
+            const userIds = result.items.map((item) => item.id);
+            const departmentMap = await this.getDepartmentsByUserIds(userIds);
+            result.items = result.items.map((item) => ({
+                ...item,
+                departments: departmentMap.get(item.id) ?? [],
+            }));
+        }
+
         return result;
+    }
+
+    /**
+     * 批量查询用户所属部门
+     *
+     * @param userIds 用户ID数组
+     * @returns Map<userId, Department[]>
+     */
+    async getDepartmentsByUserIds(userIds: string[]): Promise<Map<string, Department[]>> {
+        const resultMap = new Map<string, Department[]>();
+        if (userIds.length === 0) return resultMap;
+
+        const rows = await this.departmentUserIndexRepository.find({
+            where: { userId: In(userIds) },
+            select: ["departmentId", "userId"],
+        });
+        const departmentIds = Array.from(
+            new Set(rows.map((r) => r.departmentId).filter(Boolean)),
+        );
+        if (departmentIds.length === 0) return resultMap;
+
+        const departments = await this.departmentRepository.find({
+            where: { id: In(departmentIds) },
+        });
+        const departmentById = new Map(departments.map((d) => [d.id, d]));
+
+        for (const row of rows) {
+            const dept = departmentById.get(row.departmentId);
+            if (!dept) continue;
+            const list = resultMap.get(row.userId) ?? [];
+            list.push(dept);
+            resultMap.set(row.userId, list);
+        }
+        return resultMap;
     }
 
     /**
@@ -377,6 +455,9 @@ export class UserService extends BaseService<User> {
 
         // 保存用户
         const result = await this.userRepository.save(user);
+
+        // 同步用户部门关联
+        await this.syncUserDepartments(result.id, createUserDto.departmentIds);
 
         // 处理会员订阅信息
         if (createUserDto.level && createUserDto.levelEndTime) {
@@ -622,8 +703,7 @@ export class UserService extends BaseService<User> {
         // class-transformer 会将未传的字段设为 undefined，因此用 !== undefined 判断）
         const levelId = (updateData as UpdateUserDto).level;
         const levelEndTime = (updateData as UpdateUserDto).levelEndTime;
-        if (levelId !== undefined || levelEndTime !== undefined) {
-            // 如果提供了会员等级信息，则创建或更新订阅记录
+        if (levelId !== undefined || levelEndTime !== undefined) {            // 如果提供了会员等级信息，则创建或更新订阅记录
             if (levelId && levelEndTime) {
                 const level = await this.membershipLevelsRepository.findOne({
                     where: { id: levelId },
@@ -678,6 +758,14 @@ export class UserService extends BaseService<User> {
             }
         }
 
+        // 同步用户部门关联（仅当显式提供了 departmentIds 时处理）
+        if (
+            (updateData as UpdateUserDto).departmentIds !== undefined &&
+            "departmentIds" in updateData
+        ) {
+            await this.syncUserDepartments(id, (updateData as UpdateUserDto).departmentIds);
+        }
+
         // 查询更新后的完整用户信息
         const result = await this.findOneById(id, {
             relations: ["role"],
@@ -685,6 +773,45 @@ export class UserService extends BaseService<User> {
         });
 
         return result;
+    }
+
+    /**
+     * 同步用户与部门的关联
+     *
+     * 先删除用户现有部门关联，再写入新关联（先删后插，事务内）
+     *
+     * @param userId 用户ID
+     * @param departmentIds 部门ID数组（可为空数组以解除全部关联）
+     */
+    async syncUserDepartments(userId: string, departmentIds?: string[]): Promise<void> {
+        // 校验部门ID均存在
+        if (departmentIds && departmentIds.length > 0) {
+            const departments = await this.departmentRepository.find({
+                where: { id: In(departmentIds) },
+                select: ["id"],
+            });
+            const foundIds = new Set(departments.map((d) => d.id));
+            for (const id of departmentIds) {
+                if (!foundIds.has(id)) {
+                    throw HttpErrorFactory.notFound(`部门 ${id} 不存在`);
+                }
+            }
+        }
+
+        await this.withTransaction(async (manager) => {
+            const indexRepo = manager.getRepository(DepartmentUserIndex);
+
+            // 删除用户现有部门关联
+            await indexRepo.delete({ userId });
+
+            // 写入新关联
+            if (departmentIds && departmentIds.length > 0) {
+                const entities = [...new Set(departmentIds)].map((departmentId) =>
+                    indexRepo.create({ userId, departmentId }),
+                );
+                await indexRepo.save(entities);
+            }
+        });
     }
 
     /**
@@ -941,6 +1068,9 @@ export class UserService extends BaseService<User> {
         user.unionid = null;
         await this.userRepository.save(user);
 
+        // 清理部门关联
+        await this.departmentUserIndexRepository.delete({ userId: id });
+
         // 执行软删除
         await super.delete(id, options);
     }
@@ -981,8 +1111,180 @@ export class UserService extends BaseService<User> {
         }
         await this.userRepository.save(users);
 
+        // 清理部门关联
+        await this.departmentUserIndexRepository.delete({ userId: In(ids) });
+
         // 执行批量软删除
         const result = await this.userRepository.softRemove(users);
         return result.length;
+    }
+
+    /**
+     * 批量导入员工
+     *
+     * 处理规则：
+     * - 账号已存在 → 跳过并标「已存在」
+     * - 本次文件内账号/邮箱重复 → 保留首行，后续标「重复」
+     * - 部门不存在 → 自动创建（一级部门挂总公司，二级部门挂同名一级部门）
+     * - 密码列忽略，生成随机强密码占位（后续登录走 AD 验证）
+     *
+     * @param rows 解析后的员工行数据
+     * @returns 导入报告
+     */
+    async importEmployees(rows: EmployeeImportRow[]): Promise<EmployeeImportReport> {
+        const report: EmployeeImportReport = { total: rows.length, imported: 0, skipped: [] };
+
+        if (rows.length === 0) {
+            report.skipped.push({ row: 0, reason: "文件无数据行" });
+            return report;
+        }
+
+        const allDepartments = await this.departmentRepository.find();
+        const rootDept = allDepartments.find((d) => d.level === 1 && d.system === 1) ?? null;
+        const deptByKey = new Map<string, Department>();
+        for (const dept of allDepartments) {
+            deptByKey.set(`${dept.level}:${dept.name}`, dept);
+        }
+
+        // 收集部门清单（去重）：一级部门其为 (1, name)；二级部门记录其一级部门名
+        const level1Names = [...new Set(rows.map((r) => r.department1).filter(Boolean))];
+        const level2Map = new Map<string, Set<string>>(); // 一级部门名 -> 二级部门名集合
+        for (const row of rows) {
+            if (row.department1 && row.department2) {
+                if (!level2Map.has(row.department1)) level2Map.set(row.department1, new Set());
+                level2Map.get(row.department1)!.add(row.department2);
+            }
+        }
+
+        // 确保一级部门存在
+        for (const name of level1Names) {
+            const key = `1:${name}`;
+            if (deptByKey.has(key)) continue;
+            const saved = await this.departmentRepository.save(
+                this.departmentRepository.create({
+                    name,
+                    parentId: rootDept ? rootDept.id : null,
+                    level: 1,
+                    system: 0,
+                }),
+            );
+            deptByKey.set(key, saved);
+        }
+
+        // 确保二级部门存在（挂在同名一级部门下）
+        for (const [l1Name, l2Names] of level2Map.entries()) {
+            const l1 = deptByKey.get(`1:${l1Name}`);
+            if (!l1) continue;
+            for (const l2Name of l2Names) {
+                const key = `2:${l2Name}`;
+                if (deptByKey.has(key)) continue;
+                const saved = await this.departmentRepository.save(
+                    this.departmentRepository.create({
+                        name: l2Name,
+                        parentId: l1.id,
+                        level: 2,
+                        system: 0,
+                    }),
+                );
+                deptByKey.set(key, saved);
+            }
+        }
+
+        // 预加载现有账号与邮箱，用于去重
+        const existingUsers = await this.userRepository.find({
+            where: { username: In(rows.map((r) => r.username)) },
+            select: ["id", "username", "email"],
+        });
+        const existingUsernameSet = new Set(existingUsers.map((u) => u.username));
+        const existingEmailSet = new Set(
+            existingUsers.map((u) => (u.email ? u.email.trim().toLowerCase() : "")).filter(Boolean),
+        );
+
+        const seenUsername = new Set<string>();
+        const seenEmail = new Set<string>();
+
+        for (const row of rows) {
+            const skip = (reason: string) => {
+                report.skipped.push({
+                    row: row.rowNumber,
+                    username: row.username,
+                    reason,
+                });
+            };
+
+            if (!row.username || !/^[a-zA-Z0-9_]{3,20}$/.test(row.username)) {
+                skip("登录账号格式不正确（需 3-20 位字母/数字/下划线）");
+                continue;
+            }
+
+            if (existingUsernameSet.has(row.username)) {
+                skip("账号已存在");
+                continue;
+            }
+
+            if (seenUsername.has(row.username)) {
+                skip("本次文件内账号重复，保留首行");
+                continue;
+            }
+            seenUsername.add(row.username);
+
+            const emailKey = row.email ? row.email.trim().toLowerCase() : "";
+            if (emailKey) {
+                if (existingEmailSet.has(emailKey) || seenEmail.has(emailKey)) {
+                    skip("邮箱重复");
+                    continue;
+                }
+                seenEmail.add(emailKey);
+            }
+
+            const placeholderPassword = this.generatePlaceholderPassword();
+            const hashedPassword = await this.hashPassword(placeholderPassword);
+
+            const departmentIds: string[] = [];
+            if (row.department1 && deptByKey.has(`1:${row.department1}`)) {
+                departmentIds.push(deptByKey.get(`1:${row.department1}`)!.id);
+            }
+            if (row.department2 && row.department1 && deptByKey.has(`2:${row.department2}`)) {
+                departmentIds.push(deptByKey.get(`2:${row.department2}`)!.id);
+            }
+
+            const user = this.userRepository.create({
+                username: row.username,
+                password: hashedPassword,
+                email: emailKey || undefined,
+                realName: row.realName || undefined,
+                nickname: row.realName || row.username,
+                status: 1,
+                source: UserCreateSource.CONSOLE,
+                userNo: await generateNo(this.userRepository, "userNo"),
+                avatar: `/static/avatars/${Math.floor(Math.random() * 33) + 1}.png`,
+            });
+            const saved = await this.userRepository.save(user);
+
+            if (departmentIds.length > 0) {
+                const entities = [...new Set(departmentIds)].map((departmentId) =>
+                    this.departmentUserIndexRepository.create({ userId: saved.id, departmentId }),
+                );
+                await this.departmentUserIndexRepository.save(entities);
+            }
+
+            existingUsernameSet.add(row.username);
+            if (emailKey) existingEmailSet.add(emailKey);
+            report.imported += 1;
+        }
+
+        return report;
+    }
+
+    /**
+     * 生成随机强密码占位（含字母和数字，长度 12）
+     */
+    private generatePlaceholderPassword(): string {
+        const letters = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ";
+        const digits = "23456789";
+        let result = "";
+        for (let i = 0; i < 8; i++) result += letters[Math.floor(Math.random() * letters.length)];
+        for (let i = 0; i < 4; i++) result += digits[Math.floor(Math.random() * digits.length)];
+        return result;
     }
 }

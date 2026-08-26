@@ -53,6 +53,7 @@ import SystemPm2LogRotateIndexPage from "@/pages/console/system/pm2-log-rotate";
 import SystemStorageConfigIndexPage from "@/pages/console/system/storage-config";
 import SystemWebsiteConfigIndexPage from "@/pages/console/system/website-config";
 import UserListIndexPage from "@/pages/console/user/list";
+import DepartmentIndexPage from "@/pages/console/user/department";
 
 import AppNavbar from "./_components/app-navbar";
 import { AppSidebar } from "./_components/app-sidebar";
@@ -172,6 +173,10 @@ function ConsoleRoutes() {
           {
             path: "list",
             element: <UserListIndexPage />,
+          },
+          {
+            path: "department",
+            element: <DepartmentIndexPage />,
           },
         ],
       },

@@ -41,6 +41,8 @@ export interface WebsiteConfig {
     features?: {
         membership: boolean;
         cdk: boolean;
+        /** 充值功能开关：false 时隐藏用户端钱包/充值入口（企业免费模式） */
+        recharge: boolean;
     };
     cdk?: {
         notice: string;

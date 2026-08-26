@@ -25,12 +25,14 @@ export class ConfigWebController extends BaseController {
     @Public()
     async getConfig() {
         const websiteConfig = await this.websiteService.getConfig();
-        const [loginSettings, membershipEnabled, cdkEnabled, cdkNotice] = await Promise.all([
-            this.dictService.get("login_settings", this.getDefaultLoginSettings(), "auth"),
-            this.dictService.get("membership_plans_status", false, "membership_config"),
-            this.dictService.get("card_key_enabled", false, "card_key"),
-            this.dictService.get("card_key_notice", "", "card_key"),
-        ]);
+        const [loginSettings, membershipEnabled, cdkEnabled, cdkNotice, rechargeEnabled] =
+            await Promise.all([
+                this.dictService.get("login_settings", this.getDefaultLoginSettings(), "auth"),
+                this.dictService.get("membership_plans_status", false, "membership_config"),
+                this.dictService.get("card_key_enabled", false, "card_key"),
+                this.dictService.get("card_key_notice", "", "card_key"),
+                this.dictService.get("recharge_status", false, "recharge_config"),
+            ]);
 
         return {
             ...websiteConfig,
@@ -38,6 +40,7 @@ export class ConfigWebController extends BaseController {
             features: {
                 membership: Boolean(membershipEnabled),
                 cdk: Boolean(cdkEnabled),
+                recharge: Boolean(rechargeEnabled),
             },
             cdk: {
                 notice: cdkNotice || "",
