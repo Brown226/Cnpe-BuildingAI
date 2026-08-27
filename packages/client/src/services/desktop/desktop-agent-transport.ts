@@ -29,7 +29,7 @@ const sessionByChat = new Map<string, Promise<string>>();
 function ensureSession(chatId: string): Promise<string> {
     let p = sessionByChat.get(chatId);
     if (!p) {
-        p = desktopApi.rpc<{ sessionId: string }>("session.create").then((r) => r.sessionId);
+        p = rpc<{ sessionId: string }>("session.create").then((r) => r.sessionId);
         p.catch(() => sessionByChat.delete(chatId));
         sessionByChat.set(chatId, p);
     }
