@@ -56,12 +56,35 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
 
         const boot = async () => {
             try {
+                const serverBase =
+                    import.meta.env.VITE_APP_API_URL ?? window.location.origin;
+
+                // 配置下发（§4 服务端改造）：默认权限模式按管理端配置；
+                // 接口暂不可用（旧版本后端/离线）时回退 balanced
+                let policyMode = "balanced";
+                try {
+                    const res = await fetch(`${serverBase}/api/desktop/config`, {
+                        headers: { Authorization: token ? `Bearer ${token}` : "" },
+                    });
+                    if (res.ok) {
+                        const cfg = (await res.json()) as { defaultPolicyMode?: string };
+                        if (
+                            cfg?.defaultPolicyMode &&
+                            ["strict", "balanced", "trust"].includes(cfg.defaultPolicyMode)
+                        ) {
+                            policyMode = cfg.defaultPolicyMode;
+                        }
+                    }
+                } catch {
+                    /* 网络失败保持默认档 */
+                }
+
                 await startAgentEngine();
                 await desktopApi.initialize({
-                    serverUrl: import.meta.env.VITE_APP_API_URL ?? window.location.origin,
+                    serverUrl: serverBase,
                     token: token as string,
                     userId: userId ?? undefined,
-                    policy: { mode: "balanced" },
+                    policy: { mode: policyMode },
                 });
                 if (disposed) return;
                 setReady(true);

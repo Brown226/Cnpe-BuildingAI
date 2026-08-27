@@ -22,6 +22,7 @@ import { ApprovalBroker } from "./approval/broker.js";
 import { AuditCollector } from "./audit/collector.js";
 import { FileTools } from "./tools/file-tools.js";
 import { CommandExecutor } from "./tools/command-exec.js";
+import { OfficeTools } from "./tools/office-tools.js";
 import type { PlatformTool } from "./tools/types.js";
 import { runtimeConfig } from "./state/runtime-config.js";
 import type { ConfigPack } from "./state/runtime-config.js";
@@ -35,6 +36,7 @@ const policy = new PolicyEngine(workspaces);
 const approvals = new ApprovalBroker((method, params) => rpc.notify(method, params));
 const fileTools = new FileTools(workspaces, policy, approvals, audit);
 const executor = new CommandExecutor(policy, approvals, audit);
+const officeTools = new OfficeTools({ workspaces, policy, approvals, audit });
 const engine = new PiEngine();
 
 /** 平台自有工具：策略管控下的文件/命令能力，以受控形式交给 Agent 引擎 */
@@ -126,6 +128,69 @@ const platformTools: PlatformTool[] = [
             };
         },
     },
+    {
+        name: "parse_document",
+        description:
+            "读取并解析工作区中的文档为纯文本（支持 .docx/.xlsx/.csv/.txt/.md）。用于回答关于文档内容的问题或基于现有文件加工。",
+        parameters: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "文档绝对路径（须位于工作区内）" },
+            },
+            required: ["path"],
+        },
+        execute: async (args) => {
+            const r = await officeTools.parseDocument(String(args.path));
+            return { ok: true, summary: r.text, data: { truncated: r.truncated, kind: r.kind } };
+        },
+    },
+    {
+        name: "export_docx",
+        description:
+            "把 Markdown 文本导出为工作区内的 Word (.docx) 报告。支持标题(#)、加粗(**)、无序列表(-)；生成后告知用户保存位置。",
+        parameters: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "目标 .docx 文件绝对路径" },
+                markdown: {
+                    type: "string",
+                    description: "Markdown 源文本，如 '# 标题\\n正文…'",
+                },
+            },
+            required: ["path", "markdown"],
+        },
+        execute: async (args) => {
+            const r = await officeTools.exportDocx(String(args.path), String(args.markdown));
+            return { ok: true, summary: r.summary, data: r };
+        },
+    },
+    {
+        name: "export_xlsx",
+        description:
+            "把二维表格数据写入工作区内的 Excel (.xlsx)。rows 为数组套数组的行集合，首行为表头；适合清单、统计表等产出。",
+        parameters: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "目标 .xlsx 文件绝对路径" },
+                sheetName: { type: "string", description: "工作表名，默认 Sheet1" },
+                rows: {
+                    type: "array",
+                    items: { type: "array" },
+                    description: '如 [["姓名","部门"],["张三","财务部"]]',
+                },
+            },
+            required: ["path", "rows"],
+        },
+        execute: async (args) => {
+            const rows = args.rows as unknown[][];
+            const r = await officeTools.exportXlsx(
+                String(args.path),
+                rows,
+                typeof args.sheetName === "string" ? args.sheetName : undefined,
+            );
+            return { ok: true, summary: r.summary, data: r };
+        },
+    },
 ];
 
 // ── 生命周期 ───────────────────────────────────────────────────────────
@@ -169,9 +234,18 @@ async function bootstrapEngine(): Promise<void> {
         engine.registerTools(platformTools);
         const ws = workspaces.list()[0];
         if (ws) process.env.AGENT_CORE_WORKSPACE = ws;
+        const cfg = runtimeConfig.require()!;
+        // 开发直连优先（DEV_MODEL_BASE_URL 存在时跳过网关），生产走服务端网关（ADR-05）
+        const devDirect = Boolean(process.env.DEV_MODEL_BASE_URL);
         await engine.start({
-            modelGatewayUrl: process.env.DEV_MODEL_BASE_URL ?? "",
-            gatewayToken: "",
+            modelGatewayUrl: devDirect ? "" : joinUrl(cfg.serverUrl, "/api/gateway"),
+            gatewayToken: devDirect ? "" : cfg.token,
+            defaultModel: cfg.defaultModel
+                ? {
+                      provider: cfg.defaultModel.provider ?? "huashu-gateway",
+                      modelId: cfg.defaultModel.modelId,
+                  }
+                : undefined,
             storageDir: ".",
         });
         rpc.notify("engine/event", { kind: "engine_ready" });
@@ -179,6 +253,10 @@ async function bootstrapEngine(): Promise<void> {
         logStderr(`引擎启动失败（对话功能不可用，策略工具仍可用）: ${String(err)}`);
         rpc.notify("engine/event", { kind: "engine_error", message: String(err) });
     }
+}
+
+function joinUrl(base: string, path: string): string {
+    return `${base.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
 
 rpc.register("ping", () => ({ pong: Date.now() }));
@@ -256,6 +334,27 @@ rpc.onNotification("approval/respond", (raw) => {
     const p = raw as { requestId?: string; approved?: boolean; reason?: string };
     if (!p?.requestId) return;
     approvals.respond(p.requestId, Boolean(p.approved), p.reason);
+});
+
+// ── 办公文档直通（与 fs.* 同级：供 UI/测试确定性调用；引擎侧另有同名工具） ──
+
+rpc.register("office.parse", async (params) => {
+    requireInitialized();
+    return officeTools.parseDocument(str(params, "path"));
+});
+rpc.register("office.exportDocx", async (params) => {
+    requireInitialized();
+    const p = params as { path?: string; markdown?: string };
+    if (!p?.path || typeof p.markdown !== "string")
+        throw new RpcError(RpcErrorCodes.InvalidParams, "需要 path 与 markdown");
+    return officeTools.exportDocx(p.path, p.markdown);
+});
+rpc.register("office.exportXlsx", async (params) => {
+    requireInitialized();
+    const p = params as { path?: string; rows?: unknown[][]; sheetName?: string };
+    if (!p?.path || !Array.isArray(p.rows))
+        throw new RpcError(RpcErrorCodes.InvalidParams, "需要 path 与 rows");
+    return officeTools.exportXlsx(p.path, p.rows, p.sheetName);
 });
 
 // ── Agent 引擎通道 ─────────────────────────────────────────────────────

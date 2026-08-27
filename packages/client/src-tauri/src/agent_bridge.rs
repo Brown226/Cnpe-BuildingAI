@@ -8,6 +8,8 @@
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+// Tauri v2：事件收发须显式引入 trait（emit/listen 均挂在 Emitter 上）
+use tauri::Emitter;
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
@@ -42,7 +44,7 @@ struct RpcLine {
 /// script 参数缺省时按开发目录约定解析（../../../@buildingai/agent-core/dist/index.js，
 /// 相对 tauri.conf.json 所在的 src-tauri 目录）；node 可执行文件默认 "node"。
 #[tauri::command]
-fn agent_start(
+pub fn agent_start(
     state: tauri::State<'_, AgentBridgeState>,
     app: tauri::AppHandle,
     script: Option<String>,
@@ -124,7 +126,7 @@ fn agent_start(
 
 /// 通用 RPC 调用（30s 超时；长对话请改走通知流）。
 #[tauri::command]
-fn agent_rpc(
+pub fn agent_rpc(
     state: tauri::State<'_, AgentBridgeState>,
     method: String,
     params: Option<Map<String, Value>>,
@@ -160,7 +162,7 @@ fn agent_rpc(
 
 /// 发送通知帧（审批结果等无需响应的场景）。
 #[tauri::command]
-fn agent_notify(state: tauri::State<'_, AgentBridgeState>, method: String, params: Value) -> Result<(), String> {
+pub fn agent_notify(state: tauri::State<'_, AgentBridgeState>, method: String, params: Value) -> Result<(), String> {
     let frame = RpcLine {
         jsonrpc: "2.0",
         id: 0,
@@ -172,7 +174,7 @@ fn agent_notify(state: tauri::State<'_, AgentBridgeState>, method: String, param
 
 /// 停止 sidecar（杀进程树交给 sidecar 自身的 disconnect 处理逻辑优雅退出）。
 #[tauri::command]
-fn agent_stop(state: tauri::State<'_, AgentBridgeState>) -> Result<(), String> {
+pub fn agent_stop(state: tauri::State<'_, AgentBridgeState>) -> Result<(), String> {
     drop(state.stdin.lock().map_err(|e| e.to_string())?.take());
     if let Some(mut child) = state.child.lock().map_err(|e| e.to_string())?.take() {
         let _ = child.kill();

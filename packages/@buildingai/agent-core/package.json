@@ -27,8 +27,11 @@
     "dependencies": {
         "@earendil-works/pi-ai": "0.82.0",
         "@earendil-works/pi-coding-agent": "^0.82.0",
+        "docx": "^9.7.1",
         "dotenv": "catalog:",
-        "typebox": "^1.0.9"
+        "mammoth": "^1.12.1",
+        "typebox": "^1.0.9",
+        "xlsx": "^0.18.5"
     },
     "devDependencies": {
         "@buildingai/eslint-config": "workspace:*",

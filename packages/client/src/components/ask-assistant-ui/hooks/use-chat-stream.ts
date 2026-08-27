@@ -10,6 +10,8 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { validate as isUUID } from "uuid";
 
+import { isDesktop } from "@/services/desktop/desktop-api";
+import { getDesktopAgentTransport } from "@/services/desktop/desktop-agent-transport";
 import { getApiBaseUrl } from "@/utils/api";
 
 /** Delay before running post-stop side effects, giving backend time to persist usage. */
@@ -206,7 +208,10 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
         ) ?? false;
       return shouldContinue;
     },
-    transport: new DefaultChatTransport({
+    transport: isDesktop()
+      ? // 桌面壳：改道本机 agent-core sidecar（Pi 引擎，正文仅存本地）
+        getDesktopAgentTransport()
+      : new DefaultChatTransport({
       api: `${getApiBaseUrl()}/api/ai-chat`,
       headers: { Authorization: token ? `Bearer ${token}` : "" },
       body: () => {

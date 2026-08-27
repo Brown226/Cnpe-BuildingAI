@@ -11,6 +11,8 @@ export interface ConfigPack {
     policy?: Partial<PolicyConfig>;
     /** 管理端下发的建议工作区目录 */
     workspaces?: string[];
+    /** 默认模型标识（管理端从可用模型列表中选择下发） */
+    defaultModel?: { provider?: string; modelId: string };
 }
 
 class RuntimeConfigStore {

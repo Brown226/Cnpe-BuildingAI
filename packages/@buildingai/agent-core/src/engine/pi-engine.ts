@@ -111,7 +111,10 @@ export class PiEngine implements AgentEngine {
             };
 
             live.unsub();
-            let stepToolCalls = new Map<string, { name: string; startedAt: number; ok: boolean }>();
+            let stepToolCalls = new Map<
+                string,
+                { name: string; startedAt: number; ok: boolean; callId: string }
+            >();
             const unsub = live.session.subscribe((event: Record<string, any>) => {
                 switch (event.type) {
                     case "message_update": {
@@ -121,19 +124,30 @@ export class PiEngine implements AgentEngine {
                             push({ type: "text_delta", delta: ame.delta });
                         else if (ame.type === "thinking_delta" && typeof ame.delta === "string")
                             push({ type: "thinking_delta", delta: ame.delta });
-                        else if (ame.type === "toolcall_start")
-                            stepToolCalls.set(String(ame.contentIndex ?? "0"), {
+                        else if (ame.type === "toolcall_start") {
+                            const idx = String(ame.contentIndex ?? "0");
+                            const callId = `tc-${idx}-${Date.now()}`;
+                            // 开始即推送，前端可即时显示"正在执行工具"占位
+                            push({
+                                type: "tool_call_start",
+                                callId,
+                                name: String(ame.toolCall?.name ?? "tool"),
+                                argsPreview: "",
+                            });
+                            stepToolCalls.set(idx, {
                                 name: "?",
                                 startedAt: Date.now(),
                                 ok: false,
+                                callId,
                             });
-                        else if (ame.type === "toolcall_end") {
+                        } else if (ame.type === "toolcall_end") {
                             const idx = String(ame.contentIndex ?? "0");
                             const started = stepToolCalls.get(idx)?.startedAt;
                             stepToolCalls.set(idx, {
                                 name: String(ame.toolCall?.name ?? "tool"),
                                 startedAt: started ?? Date.now(),
                                 ok: true,
+                                callId: stepToolCalls.get(idx)?.callId ?? `tc-${idx}-${Date.now()}`,
                             });
                         }
                         break;
@@ -144,7 +158,7 @@ export class PiEngine implements AgentEngine {
                         for (const [, call] of stepToolCalls)
                             push({
                                 type: "tool_call_end",
-                                callId: `${call.name}-${call.startedAt}`,
+                                callId: call.callId,
                                 ok: call.ok,
                                 durationMs: Date.now() - call.startedAt,
                             });
