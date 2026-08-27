@@ -16,6 +16,7 @@ storage/*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.docker-backup
 /logs/
 
 # Testing
@@ -59,6 +60,9 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Runtime data
+data/
 
 # ESLint cache
 .eslintcache
