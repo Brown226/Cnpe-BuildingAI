@@ -68,13 +68,18 @@ export class AppModule {
         await this.createExtensionSchemas(extensionsList);
 
         const publicPath = join(__dirname, "..", "..", "..", "..", "public");
-        const webPath = join(publicPath, "web");
 
-        const webIndexPath = join(webPath, "index.html");
-
-        const shouldUseWebPath = existsSync(webPath) && existsSync(webIndexPath);
-
-        const rootPath = shouldUseWebPath ? webPath : publicPath;
+        // 端分离（ADR-S01）：管理进程托管管理端构建产物 public/admin，其余进程托管 C 端 public/web
+        const webIndexPath = join(publicPath, "web", "index.html");
+        const adminIndexPath = join(publicPath, "admin", "index.html");
+        const rootPath =
+            process.env.ADMIN_MODE === "admin"
+                ? existsSync(adminIndexPath)
+                    ? join(publicPath, "admin")
+                    : publicPath
+                : existsSync(webIndexPath)
+                  ? join(publicPath, "web")
+                  : publicPath;
 
         return {
             module: AppModule,

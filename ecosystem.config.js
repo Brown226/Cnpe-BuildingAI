@@ -11,6 +11,8 @@ module.exports = {
             max_memory_restart: "1G",
             env: {
                 NODE_ENV: "production",
+                // 端分离(ADR-S01)：默认全量模式；生产拆分时改 APP 为 app，并启用 buildingai-admin
+                ADMIN_MODE: "all",
             },
             env_production: {
                 NODE_ENV: "production",
@@ -21,6 +23,34 @@ module.exports = {
             error_file: "../../logs/pm2/api-error.log",
             out_file: "../../logs/pm2/api-out.log",
             log_file: "../../logs/pm2/api-combined.log",
+            time: true,
+            merge_logs: true,
+            log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+        },
+        {
+            name: "buildingai-admin",
+            script: "dist/main-admin.js",
+            cwd: "packages/api",
+            instances: "1",
+            exec_mode: "cluster",
+            autorestart: true,
+            watch: false,
+            max_memory_restart: "1G",
+            env: {
+                NODE_ENV: "production",
+                ADMIN_MODE: "admin",
+            },
+            env_production: {
+                NODE_ENV: "production",
+                ADMIN_MODE: "admin",
+            },
+            env_development: {
+                NODE_ENV: "development",
+                ADMIN_MODE: "admin",
+            },
+            error_file: "../../logs/pm2/admin-api-error.log",
+            out_file: "../../logs/pm2/admin-api-out.log",
+            log_file: "../../logs/pm2/admin-api-combined.log",
             time: true,
             merge_logs: true,
             log_date_format: "YYYY-MM-DD HH:mm:ss Z",

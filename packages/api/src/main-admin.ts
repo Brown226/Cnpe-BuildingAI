@@ -19,13 +19,16 @@ import { createServerApp } from "./common/utils/app-server";
 import { setAssetsDir, tryListen } from "./common/utils/system";
 
 /**
- * 业务 / 全量进程（端分离 ADR-S01）：
- * - ADMIN_MODE=all   （默认）单进程全量，行为与改造前一致
- * - ADMIN_MODE=app   仅承载业务面（/api、/v1、/gateway），屏蔽管理面
- * 管理进程见 main-admin.ts
+ * 管理进程（端分离 ADR-S01）：
+ * 仅承载管理面（/consoleapi）与健康检查，白名单隔离；静态资源服务管理端构建产物 public/admin。
+ * 端口由 SERVER_ADMIN_PORT 指定（默认 4095）。
  */
 async function bootstrap() {
-    const port = process.env.SERVER_PORT ? parseInt(process.env.SERVER_PORT, 10) : 4090;
+    // 强制管理进程模式：供 app.module 静态目录选择与 installAppModeFilter 白名单使用。
+    // 需在 createServerApp（模块装配）之前生效；.env 中的 ADMIN_MODE 不会覆盖已存在的值。
+    process.env.ADMIN_MODE = "admin";
+
+    const port = process.env.SERVER_ADMIN_PORT ? parseInt(process.env.SERVER_ADMIN_PORT, 10) : 4095;
 
     const { app, appLogger } = await createServerApp();
 
