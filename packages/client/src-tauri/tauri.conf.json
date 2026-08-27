@@ -5,7 +5,7 @@
   "identifier": "cc.buildingai.client",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:4091",
+    "devUrl": "http://127.0.0.1:4090",
     "beforeBuildCommand": "pnpm run build:web",
     "frontendDist": "../dist"
   },

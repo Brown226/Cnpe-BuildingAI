@@ -39,6 +39,8 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
     const desktop = isDesktop();
     const token = useAuthStore((state) => state.auth.token);
     const user = useAuthStore((state) => state.user);
+    // 修复：此前直接引用未定义的 userId（deps 数组内）导致首渲染 ReferenceError 白屏
+    const userId = (user as { id?: string } | null)?.id;
     const [ready, setReady] = useState(false);
     const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequestPayload[]>([]);
     const [refreshWorkspacesSignal, setRefreshWorkspacesSignal] = useState(0);
@@ -83,7 +85,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                 await desktopApi.initialize({
                     serverUrl: serverBase,
                     token: token as string,
-                    userId: userId ?? undefined,
+                    userId,
                     policy: { mode: policyMode },
                 });
                 if (disposed) return;
