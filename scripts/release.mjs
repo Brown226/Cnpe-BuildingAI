@@ -16,8 +16,13 @@ if (Number(currentVersion) < requiredVersion) {
 }
 
 const rootDir = path.resolve(import.meta.dirname, "..");
-const distPath = path.resolve(rootDir, "packages/client/dist");
-const releasePath = path.resolve(rootDir, "public/web");
+// 端分离(ADR-S03)：RELEASE_TARGET=admin 时发布管理端构建产物到 public/admin，默认发布 C 端到 public/web
+const target = process.env.RELEASE_TARGET || "web";
+const distPath = path.resolve(
+    rootDir,
+    target === "admin" ? "packages/admin/dist" : "packages/client/dist",
+);
+const releasePath = path.resolve(rootDir, target === "admin" ? "public/admin" : "public/web");
 
 /**
  * Recursively set directory and file permissions to 0o755 (dirs) / 0o644 (files).

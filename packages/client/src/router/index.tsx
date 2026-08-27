@@ -1,4 +1,3 @@
-import AuthGuard from "@buildingai/ui/components/auth/auth-guard";
 import GlobalError from "@buildingai/ui/components/exception/global-error";
 import NotFoundPage from "@buildingai/ui/components/exception/not-found-page";
 import MainLayout from "@buildingai/ui/layouts/main/index";
@@ -19,7 +18,6 @@ import DatasetsLayout from "@/pages/datasets/_layouts";
 import DatasetsDetailPage from "@/pages/datasets/detail";
 import InstallPage from "@/pages/install";
 
-import ConsoleLayout from "../layouts/console";
 import DynamicHomePage from "../pages";
 import AppIframePage from "../pages/apps/[identifier]";
 import ChatPage from "../pages/chat";
@@ -156,20 +154,6 @@ export const router = createBrowserRouter([
         ],
       },
 
-      {
-        element: <AuthGuard />,
-        children: [
-          {
-            path: "/console/*",
-            element: <ConsoleLayout />,
-            errorElement: (
-              <ConsoleLayout>
-                <GlobalError />
-              </ConsoleLayout>
-            ),
-          },
-        ],
-      },
       {
         path: "*",
         element: <NotFoundPage />,

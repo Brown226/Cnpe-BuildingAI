@@ -1,0 +1,91 @@
+export default {
+  generalSetting: {
+    appearance: {
+      label: "Appearance",
+      themeColor: {
+        title: "Theme Color",
+        description: "Choose the interface theme color scheme",
+        selectColor: "Select Color",
+      },
+      themeMode: {
+        title: "Theme Mode",
+        description: "Choose light, dark or follow system",
+        light: "Light",
+        dark: "Dark",
+        system: "System",
+      },
+      fontSize: {
+        title: "Font Size",
+        description: "Adjust the overall interface font size",
+        xs: "Extra Small",
+        sm: "Small",
+        md: "Default",
+        lg: "Large",
+        xl: "Extra Large",
+      },
+    },
+    locale: {
+      label: "Language & Region",
+      title: "Language",
+      description: "Choose the interface display language",
+    },
+  },
+  nav: {
+    account: {
+      label: "Account",
+      profile: "Profile",
+      wallet: "My Points",
+      subscribe: "Subscription",
+      redeemCardKey: "Redeem Card",
+    },
+    general: {
+      label: "General",
+      general: "General Settings",
+      notice: "Notifications",
+      about: "About",
+    },
+    ai: {
+      label: "AI Settings",
+      personalized: "Personalization",
+      tools: "Tools",
+    },
+  },
+  personalized: {
+    label: "Chat Style",
+    chatStyle: {
+      title: "Chat Style",
+      description: "Set the style and tone of AI responses",
+      default: "Default",
+      defaultHint: "Standard chat style",
+      sunny: "Sunny",
+      sunnyHint: "Cheerful and optimistic",
+      tsundere: "Tsundere",
+      tsundereHint: "Sharp outside, sweet inside",
+      gentle: "Gentle",
+      gentleHint: "Caring and soft-spoken",
+      sarcastic: "Sarcastic",
+      sarcasticHint: "Sharp-witted and humorous",
+      energetic: "Energetic",
+      energeticHint: "Lively and playful",
+      classical: "Classical",
+      classicalHint: "Elegant and poetic",
+    },
+    customInstruction: {
+      title: "Custom Instructions",
+      description: "Other behavior, style and tone preferences",
+      placeholder: "e.g. Please keep your answers concise, reply in English…",
+    },
+    memory: {
+      title: "Memory",
+      description:
+        "These are facts about you that AI has extracted from conversations and will be used as context in future chats. Deleting one stops it from being used.",
+      referSavedMemories: "Refer to saved memories",
+      referSavedMemoriesHint: "Let AI save and use memories when replying.",
+      referChatHistory: "Refer to chat history",
+      referChatHistoryHint: "Let AI refer to recent conversations when replying.",
+      empty: "No memories yet",
+      emptyHint: "When you chat with AI, the system may save your preferences and key information.",
+      delete: "Delete",
+    },
+  },
+};

@@ -1,0 +1,91 @@
+export default {
+  generalSetting: {
+    appearance: {
+      label: "外观",
+      themeColor: {
+        title: "主题配色",
+        description: "选择界面的主题配色方案",
+        selectColor: "选择配色",
+      },
+      themeMode: {
+        title: "主题模式",
+        description: "选择浅色、深色或跟随系统",
+        light: "浅色模式",
+        dark: "深色模式",
+        system: "跟随系统",
+      },
+      fontSize: {
+        title: "字体大小",
+        description: "调整界面整体字体大小",
+        xs: "小号",
+        sm: "较小",
+        md: "默认",
+        lg: "较大",
+        xl: "特大",
+      },
+    },
+    locale: {
+      label: "语言和区域",
+      title: "语言",
+      description: "选择界面显示语言",
+    },
+  },
+  nav: {
+    account: {
+      label: "账户",
+      profile: "账户",
+      wallet: "我的积分",
+      subscribe: "订阅管理",
+      redeemCardKey: "卡密兑换",
+    },
+    general: {
+      label: "常规",
+      general: "基础设置",
+      notice: "通知",
+      about: "关于",
+    },
+    ai: {
+      label: "AI设置",
+      personalized: "个性化",
+      tools: "工具",
+    },
+  },
+  personalized: {
+    label: "对话风格",
+    chatStyle: {
+      title: "基本对话风格",
+      description: "设置 AI 回复你的风格和语调",
+      default: "默认",
+      defaultHint: "标准对话风格",
+      sunny: "阳光开朗",
+      sunnyHint: "积极乐观、充满正能量",
+      tsundere: "腹黑傲娇",
+      tsundereHint: "嘴硬心软、反差萌",
+      gentle: "温柔体贴",
+      gentleHint: "轻声细语、关怀备至",
+      sarcastic: "毒舌犀利",
+      sarcasticHint: "一针见血、幽默讽刺",
+      energetic: "元气活泼",
+      energeticHint: "俏皮可爱、活力四射",
+      classical: "古风小生",
+      classicalHint: "文雅有礼、书卷气息",
+    },
+    customInstruction: {
+      title: "自定义指令",
+      description: "其他行为、风格和语调偏好设置",
+      placeholder: "例如：回答时请尽量简洁，用中文回复…",
+    },
+    memory: {
+      title: "记忆管理",
+      description:
+        "这些是 AI 从对话中自动提取并保存的关于你的信息，会用于后续对话的上下文。删除后该条记忆将不再被使用。",
+      referSavedMemories: "参考保存的记忆",
+      referSavedMemoriesHint: "让 AI 保存记忆并在回复时使用记忆。",
+      referChatHistory: "参考历史聊天记录",
+      referChatHistoryHint: "让 AI 在回复时参考最近的对话。",
+      empty: "暂无记忆",
+      emptyHint: "与 AI 对话时，系统会自动识别并保存你的偏好与关键信息。",
+      delete: "删除",
+    },
+  },
+};
