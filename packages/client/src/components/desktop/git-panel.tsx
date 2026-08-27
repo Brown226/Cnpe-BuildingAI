@@ -4,7 +4,7 @@
  * 单文件回退（checkout）。全部经 exec.run 走策略层（git 命令白名单）。
  * 仅在工作区根为 git 仓库时可用。
  */
-import { Branch, Check, GitCommitHorizontal, RefreshCw, RotateCcw } from "lucide-react";
+import { GitBranch, Check, GitCommitHorizontal, RefreshCw, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useCallback, useEffect, useState } from "react";
 
@@ -130,7 +130,7 @@ export function GitPanel() {
     return (
         <div className="flex flex-1 flex-col overflow-hidden">
             <div className="flex items-center gap-1.5 border-b px-3 py-2">
-                <Branch className="text-muted-foreground size-3.5" />
+                <GitBranch className="text-muted-foreground size-3.5" />
                 <select
                     value={branch}
                     onChange={(e) => void switchBranch(e.target.value)}

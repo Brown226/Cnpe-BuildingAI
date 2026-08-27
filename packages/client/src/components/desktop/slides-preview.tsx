@@ -3,9 +3,11 @@
  * 基于 pptx-preview 渲染 .pptx 二进制（经 sidecar fs.readBinary 读取），
  * 支持上一页/下一页翻页与页码显示。
  */
-import PPTXPreviewer from "pptx-preview";
+import { init } from "pptx-preview";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+
+type PPTXPreviewer = ReturnType<typeof init>;
 
 export function SlidesPreview({ base64 }: { base64: string }) {
     const domRef = useRef<HTMLDivElement>(null);
@@ -23,7 +25,7 @@ export function SlidesPreview({ base64 }: { base64: string }) {
             const binary = atob(base64);
             const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-            previewer = new PPTXPreviewer(dom, { mode: "slide" });
+            previewer = init(dom, { mode: "slide" });
             previewerRef.current = previewer;
             void previewer.preview(bytes.buffer).then(() => {
                 if (disposed) return;

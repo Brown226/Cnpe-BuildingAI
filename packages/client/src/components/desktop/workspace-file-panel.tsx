@@ -7,7 +7,7 @@
 import {
   ArrowDownAZ,
   ArrowUpAZ,
-  Branch,
+  GitBranch,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -534,7 +534,7 @@ export function WorkspaceFilePanel({
               : "text-muted-foreground border-transparent hover:text-foreground"
           }`}
         >
-          <Branch className="size-4" />
+          <GitBranch className="size-4" />
           Git
         </button>
         <div className="flex-1" />
