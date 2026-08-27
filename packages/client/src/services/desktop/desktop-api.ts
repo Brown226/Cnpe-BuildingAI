@@ -116,6 +116,11 @@ export const desktopApi = {
         return rpc("fs.read", { path });
     },
 
+    /** T3.5 二进制读取（base64，20MB 上限；PPT 在线预览用） */
+    fsReadBinary(path: string): Promise<{ base64: string; size: number }> {
+        return rpc("fs.readBinary", { path });
+    },
+
     fsCreate(path: string, type: "file" | "directory"): Promise<{ path: string }> {
         return rpc("fs.create", { path, type });
     },

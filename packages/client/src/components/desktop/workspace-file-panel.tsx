@@ -19,6 +19,7 @@ import {
   Loader2,
   MoreHorizontal,
   Pencil,
+  Plus,
   RefreshCw,
   Trash2,
   X,
@@ -27,10 +28,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useCallback, useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 import { desktopApi, onAgentEvent } from "@/services/desktop/desktop-api";
 import { useDesktop } from "./desktop-provider";
 import { GitPanel } from "./git-panel";
+import { SlidesPreview } from "./slides-preview";
 
 type Entry = { name: string; type: "file" | "dir"; size?: number; mtimeMs?: number };
 interface RecentFile {
@@ -43,6 +46,18 @@ interface RecentFile {
 const joinPath = (dir: string, name: string) => `${dir.replace(/[\\/]+$/, "")}\\${name}`;
 const relFromRoot = (root: string, p: string) =>
   p.startsWith(root) ? p.slice(root.length).replace(/^[\\/]+/, "") : p;
+
+/** 表格工具（OpenWork artifact-spreadsheet-model 语义） */
+function cloneSheetRows(rows: unknown[][]): unknown[][] {
+  return rows.map((row) => [...row]);
+}
+
+function normalizeSheetShape(rows: unknown[][]): unknown[][] {
+  const width = Math.max(1, ...rows.map((row) => row.length));
+  return rows.map((row) =>
+    Array.from({ length: width }, (_, index) => row[index] ?? ""),
+  );
+}
 
 export function WorkspaceFilePanel({
   open,
@@ -69,11 +84,16 @@ export function WorkspaceFilePanel({
     path: string;
     text: string;
     truncated: boolean;
-    /** T2.3 工件预览分型：text 可编辑 / image / pdf / html / xlsx 表格 */
-    kind: "text" | "image" | "pdf" | "html" | "xlsx";
+    /** T2.3 工件预览分型：text 可编辑 / markdown 渲染 / image / pdf / html / xlsx 表格 / slides 翻页 */
+    kind: "text" | "markdown" | "image" | "pdf" | "html" | "xlsx" | "slides";
     rows?: unknown[][];
+    /** 表格保存基线（OpenWork artifact-spreadsheet 语义：脏检查用） */
+    baseRows?: unknown[][];
     sheetName?: string;
   } | null>(null);
+  const [sheetSaving, setSheetSaving] = useState(false);
+  /** T3.5 PPT 在线预览数据（base64，与 preview.kind=slides 配对） */
+  const [slidesBase64, setSlidesBase64] = useState("");
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -192,17 +212,37 @@ export function WorkspaceFilePanel({
         setPreview({ path, text: "", truncated: false, kind: "image" });
       } else if (ext === ".pdf") {
         setPreview({ path, text: "", truncated: false, kind: "pdf" });
+      } else if (ext === ".pptx" || ext === ".ppt") {
+        // T3.5 PPT 在线预览：二进制读取 → 浏览器内翻页
+        try {
+          const r = await desktopApi.fsReadBinary(path);
+          setPreview({ path, text: "", truncated: false, kind: "slides" });
+          setSlidesBase64(r.base64);
+        } catch (err) {
+          setPreview({
+            path,
+            text: `（PPT 预览不可用：${String(err)}）`,
+            truncated: false,
+            kind: "text",
+          });
+        }
       } else if (ext === ".html" || ext === ".htm") {
         setPreview({ path, text: "", truncated: false, kind: "html" });
+      } else if (ext === ".md" || ext === ".markdown") {
+        // T3.1 Work 模式：Markdown 实时渲染预览（编辑走文本编辑回写）
+        const r = await desktopApi.fsRead(path);
+        setPreview({ path, text: r.content, truncated: r.truncated, kind: "markdown" });
       } else if (ext === ".xlsx" || ext === ".xlsm") {
-        // T2.3 表格工件：结构化读取 → 表格编辑器（可回写）
+        // T2.3 表格工件：结构化读取 → 表格编辑器（可回写，OpenWork 语义）
         const r = await desktopApi.officeReadXlsx(path);
+        const rows = normalizeSheetShape(r.rows);
         setPreview({
           path,
           text: "",
           truncated: false,
           kind: "xlsx",
-          rows: r.rows,
+          rows,
+          baseRows: cloneSheetRows(rows),
           sheetName: r.sheetName,
         });
       } else if (isOffice) {
@@ -236,13 +276,51 @@ export function WorkspaceFilePanel({
     });
   };
 
-  /** T2.3 表格编辑回写（单元格编辑 → exportXlsx 覆盖） */
+  /** T2.3 表格编辑回写（单元格编辑 → exportXlsx 覆盖，OpenWork artifact-spreadsheet 语义） */
   const saveSheetEdit = async () => {
     if (!preview || !preview.rows) return;
-    await withBusy(async () => {
+    setSheetSaving(true);
+    try {
       await desktopApi.officeExportXlsx(preview.path, preview.rows, preview.sheetName);
+      const rows = normalizeSheetShape(preview.rows);
+      setPreview({ ...preview, rows, baseRows: cloneSheetRows(rows) });
       toast.success("已保存表格");
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setSheetSaving(false);
+    }
+  };
+
+  const sheetDirty = preview?.kind === "xlsx" && preview.baseRows !== undefined
+      ? JSON.stringify(preview.rows) !== JSON.stringify(preview.baseRows)
+      : false;
+
+  const sheetUpdateCell = (ri: number, ci: number, value: string) => {
+    if (!preview?.rows) return;
+    const rows = cloneSheetRows(preview.rows);
+    rows[ri] = [...(rows[ri] ?? [])];
+    rows[ri]![ci] = value;
+    setPreview({ ...preview, rows: normalizeSheetShape(rows) });
+  };
+
+  const sheetAddRow = () => {
+    if (!preview?.rows) return;
+    const width = Math.max(1, ...preview.rows.map((r) => r.length));
+    setPreview({
+      ...preview,
+      rows: [...preview.rows, Array.from({ length: width }, () => "")],
     });
+  };
+
+  const sheetAddColumn = () => {
+    if (!preview?.rows) return;
+    setPreview({ ...preview, rows: preview.rows.map((r) => [...r, ""]) });
+  };
+
+  const sheetDiscard = () => {
+    if (!preview?.baseRows) return;
+    setPreview({ ...preview, rows: cloneSheetRows(preview.baseRows) });
   };
 
   const withBusy = async (fn: () => Promise<void>) => {
@@ -589,6 +667,27 @@ export function WorkspaceFilePanel({
             <div className="flex flex-1 items-center justify-center">
               <Loader2 className="text-muted-foreground size-4 animate-spin" />
             </div>
+          ) : preview?.kind === "markdown" && !editing ? (
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex items-center border-b px-3 py-1.5">
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditText(preview.text);
+                    setEditing(true);
+                  }}
+                  className="text-primary hover:bg-accent rounded px-2 py-0.5 text-[11px] font-medium"
+                >
+                  编辑
+                </button>
+              </div>
+              <div className="prose-sm flex-1 overflow-auto p-3 text-[13px]">
+                <ReactMarkdown>{preview.text || "（空文件）"}</ReactMarkdown>
+              </div>
+            </div>
+          ) : preview?.kind === "slides" ? (
+            <SlidesPreview base64={slidesBase64} />
           ) : preview?.kind === "image" ? (
             <div className="flex flex-1 items-center justify-center overflow-auto p-3">
               <img
@@ -612,35 +711,59 @@ export function WorkspaceFilePanel({
             />
           ) : preview?.kind === "xlsx" ? (
             <div className="flex flex-1 flex-col overflow-hidden">
-              <div className="flex items-center gap-2 border-b px-3 py-1.5">
-                <span className="text-muted-foreground text-[11px]">
-                  {preview.sheetName} · {preview.rows?.length ?? 0} 行
+              <div className="flex shrink-0 items-center gap-1.5 border-b px-3 py-1.5">
+                <button
+                  type="button"
+                  onClick={sheetAddRow}
+                  className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1 rounded px-2 py-0.5 text-[11px]"
+                  title="追加一行"
+                >
+                  <Plus className="size-3" /> 行
+                </button>
+                <button
+                  type="button"
+                  onClick={sheetAddColumn}
+                  className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-1 rounded px-2 py-0.5 text-[11px]"
+                  title="追加一列"
+                >
+                  <Plus className="size-3" /> 列
+                </button>
+                <span className="text-muted-foreground min-w-0 truncate text-[11px]">
+                  {preview.sheetName} · {preview.rows?.length ?? 0} 行 ×{" "}
+                  {Math.max(1, ...(preview.rows ?? [[]]).map((r) => r.length))} 列
                 </span>
                 <div className="flex-1" />
                 <button
                   type="button"
-                  onClick={() => void saveSheetEdit()}
-                  className="text-primary hover:bg-accent rounded px-2 py-0.5 text-[11px] font-medium"
+                  onClick={sheetDiscard}
+                  disabled={!sheetDirty || sheetSaving}
+                  className="text-muted-foreground hover:bg-accent rounded px-2 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  保存表格
+                  放弃
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveSheetEdit()}
+                  disabled={!sheetDirty || sheetSaving}
+                  className="text-primary hover:bg-accent rounded px-2 py-0.5 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {sheetSaving ? "保存中…" : "保存"}
                 </button>
               </div>
               <div className="flex-1 overflow-auto">
-                <table className="border-collapse text-[11px]">
+                <table className="w-full border-collapse text-[11px]">
                   <tbody>
                     {(preview.rows ?? []).map((row, ri) => (
                       <tr key={ri}>
                         {Array.from({ length: Math.max(row.length, 1) }).map((_, ci) => (
-                          <td key={ci} className="border-border border p-0">
+                          <td
+                            key={ci}
+                            className="border-border border-b p-0 [&:not(:first-child)]:border-l"
+                          >
                             <input
                               value={String(row[ci] ?? "")}
-                              onChange={(e) => {
-                                const rows = [...(preview.rows ?? [])];
-                                rows[ri] = [...rows[ri]!];
-                                rows[ri]![ci] = e.target.value;
-                                setPreview({ ...preview, rows });
-                              }}
-                              className="bg-background h-6 w-24 min-w-16 px-1.5 outline-none focus:bg-accent/40"
+                              onChange={(e) => sheetUpdateCell(ri, ci, e.target.value)}
+                              className="bg-background h-7 w-full min-w-[100px] px-2 outline-none focus:bg-accent/40"
                             />
                           </td>
                         ))}

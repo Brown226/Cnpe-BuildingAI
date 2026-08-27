@@ -12,10 +12,15 @@ import path from "node:path";
 
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import mammoth from "mammoth";
+import * as PptxGenJSModule from "pptxgenjs";
 import * as XLSXModule from "xlsx";
 // Node ESM 互操作：xlsx(CJS) 的完整导出挂在 default 下
 type XLSXApi = typeof XLSXModule;
 const XLSX = ((XLSXModule as unknown as { default?: XLSXApi }).default ?? XLSXModule) as XLSXApi;
+// pptxgenjs 同理：default 导出为构造器
+type PptxGenCtor = new () => PptxGenInstance;
+const PptxGenJS = ((PptxGenJSModule as unknown as { default?: PptxGenCtor }).default ??
+    PptxGenJSModule) as PptxGenCtor;
 
 import type { ApprovalBroker } from "../approval/broker.js";
 import type { AuditCollector } from "../audit/collector.js";
@@ -25,6 +30,16 @@ import type { WorkspaceStore } from "../workspace/store.js";
 
 /** 模型可消费的解析文本上限（字符），超出截断并标记 */
 const PARSE_CHAR_LIMIT = 60_000;
+
+/** pptxgenjs 实例的最小结构化类型（其类型声明为 class+namespace 混合，结构兼容即可） */
+interface PptxGenInstance {
+    layout: unknown;
+    write(options: { outputType: "nodebuffer" }): Promise<unknown>;
+    addSlide(): {
+        background?: unknown;
+        addText(text: unknown, options?: Record<string, unknown>): unknown;
+    };
+}
 
 export interface OfficeDeps {
     workspaces: WorkspaceStore;
@@ -191,6 +206,85 @@ export class OfficeTools {
             rowCount: capped.length,
             colCount: capped[0]?.length ?? 0,
         };
+    }
+
+    /**
+     * T3.3/T3.5 演示生成：文本大纲 → PPTX。
+     * 大纲语法：# 标题 定义一页（可选 ## 副标题），普通行 = 要点。
+     */
+    async exportPptx(
+        fileAbs: string,
+        outline: string,
+    ): Promise<{ summary: string; bytesWritten: number; slideCount: number }> {
+        const abs = await this.guardedBinaryWrite(fileAbs, "PPTX 演示");
+        const pptx = new PptxGenJS();
+        pptx.layout = "LAYOUT_WIDE";
+        let slideCount = 0;
+        let current: { title: string; subtitle?: string; bullets: string[] } | null = null;
+        for (const rawLine of outline.replace(/\r\n/g, "\n").split("\n")) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            const title = /^#\s+(.+)$/.exec(line);
+            const subtitle = /^##\s+(.+)$/.exec(line);
+            if (title) {
+                if (current) this.addSlide(pptx, current);
+                current = { title: title[1]!.trim(), bullets: [] };
+                slideCount++;
+            } else if (subtitle && current) {
+                current.subtitle = subtitle[1]!.trim();
+            } else if (current) {
+                current.bullets.push(line.replace(/^[-*]\s+/, ""));
+            }
+        }
+        if (current) this.addSlide(pptx, current);
+        if (slideCount === 0) {
+            // 无标题行：单页兜底
+            this.addSlide(pptx, { title: "演示文稿", bullets: outline.split("\n").filter(Boolean) });
+            slideCount = 1;
+        }
+        const out = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+        mkdirSync(path.dirname(abs), { recursive: true });
+        writeFileSync(abs, out);
+        this.recordWrite(abs, out.length, `pptx(${slideCount} 页)`);
+        return {
+            summary: `已生成 PPT 演示：${abs}（${slideCount} 页）`,
+            bytesWritten: out.length,
+            slideCount,
+        };
+    }
+
+    private addSlide(
+        pptx: PptxGenInstance,
+        slide: { title: string; subtitle?: string; bullets: string[] },
+    ): void {
+        const s = pptx.addSlide();
+        s.background = { color: "F8FAFC" };
+        s.addText(slide.title, {
+            x: 0.6,
+            y: 0.45,
+            w: 12.3,
+            h: 0.9,
+            fontSize: 30,
+            bold: true,
+            color: "1E293B",
+        });
+        if (slide.subtitle) {
+            s.addText(slide.subtitle, { x: 0.6, y: 1.35, w: 12.3, h: 0.5, fontSize: 16, color: "64748B" });
+        }
+        if (slide.bullets.length > 0) {
+            s.addText(
+                slide.bullets.map((b) => ({ text: b, options: { bullet: true, breakLine: true } })),
+                {
+                    x: 0.6,
+                    y: 2.0,
+                    w: 12.0,
+                    h: 4.4,
+                    fontSize: 18,
+                    color: "334155",
+                    valign: "top",
+                },
+            );
+        }
     }
 
     // ── 内部 ───────────────────────────────────────────────────────────

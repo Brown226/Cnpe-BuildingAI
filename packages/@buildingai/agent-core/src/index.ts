@@ -229,6 +229,7 @@ rpc.register("initialize", (params) => {
                 "session.get",
                 "fs.list",
                 "fs.read",
+                "fs.readBinary",
                 "fs.write",
                 "fs.create",
                 "fs.rename",
@@ -349,6 +350,17 @@ rpc.register("fs.list", (params) => {
 rpc.register("fs.read", (params) => {
     requireInitialized();
     return fileTools.read(str(params, "path"));
+});
+
+/** T3.5 二进制读取（PPT 在线预览等）：base64 返回，上限 20MB */
+rpc.register("fs.readBinary", (params) => {
+    requireInitialized();
+    const p = str(params, "path");
+    assertAllowed(policy.decideFileOp(p, "read"), RpcErrorCodes.PolicyDenied);
+    const buf = fs.readFileSync(p);
+    if (buf.length > 20 * 1024 * 1024)
+        throw new RpcError(RpcErrorCodes.InvalidParams, "文件超过 20MB，无法在线预览");
+    return { base64: buf.toString("base64"), size: buf.length };
 });
 
 rpc.register("fs.write", async (params) => {
