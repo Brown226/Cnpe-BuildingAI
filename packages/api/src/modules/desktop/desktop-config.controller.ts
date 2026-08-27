@@ -63,6 +63,12 @@ export class DesktopConfigController {
         return { defaultPolicyMode: globalMode, policyKeys, egressAllowlist, revision: POLICY_REVISION };
     }
 
+    /** 心跳（T4.2 强制在线）：JWT 校验通过即在线；桌面端离线时锁定功能 */
+    @Get("heartbeat")
+    heartbeat(): { ok: true; now: string } {
+        return { ok: true, now: new Date().toISOString() };
+    }
+
     /** 出网白名单（T4.8）：dict group=desktop_egress，value 为 JSON 数组（域名，支持 *.corp.com 通配）；
      *  空数组 = 未配置（不限制，向后兼容）；配置后 agent 仅能访问白名单内域名。 */
     private async loadEgressAllowlist(): Promise<string[]> {

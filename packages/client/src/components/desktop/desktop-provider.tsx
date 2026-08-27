@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createContext } from "react";
+import { WifiOff } from "lucide-react";
 import { useAuthStore } from "@buildingai/stores";
 
 import {
@@ -55,6 +56,8 @@ interface DesktopContextValue {
     setPanelOpen: (open: boolean) => void;
     /** T4.5 服务端下发的桌面策略键（null=未拉取/服务端不可用） */
     policyKeys: Record<string, boolean> | null;
+    /** T4.2 强制在线状态（false=离线，桌面锁定） */
+    online: boolean;
 }
 
 const DesktopContext = createContext<DesktopContextValue>({
@@ -73,6 +76,7 @@ const DesktopContext = createContext<DesktopContextValue>({
     panelOpen: false,
     setPanelOpen: () => undefined,
     policyKeys: null,
+    online: true,
 });
 
 /** T3.6 处理 agent 的浏览器请求：invoke Tauri → 回填 browser/result */
@@ -136,6 +140,8 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [activeMode, setActiveMode] = useState<"code" | "work">(() => loadMode());
     const [policyKeys, setPolicyKeys] = useState<Record<string, boolean> | null>(null);
+    /** T4.2 强制在线：心跳失败即判定离线并锁定桌面功能 */
+    const [online, setOnline] = useState(true);
     const [panelOpen, setPanelOpen] = useState<boolean>(() => {
         if (typeof window === "undefined") return false;
         try {
@@ -245,6 +251,29 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
         void desktopApi.workspaceRemove(entry.path).catch(() => undefined);
         setRefreshWorkspacesSignal((n) => n + 1);
     }, []);
+
+    // T4.2 强制在线：30s 心跳，连续失败即锁定（离线均不可使用，A3 决策）
+    useEffect(() => {
+        if (!desktop || !token) return;
+        let disposed = false;
+        const serverBase = import.meta.env.VITE_APP_API_URL ?? window.location.origin;
+        const check = async () => {
+            try {
+                const res = await fetch(`${serverBase}/api/desktop/heartbeat`, {
+                    headers: { Authorization: token ? `Bearer ${token}` : "" },
+                });
+                if (!disposed) setOnline(res.ok);
+            } catch {
+                if (!disposed) setOnline(false);
+            }
+        };
+        void check();
+        const timer = setInterval(check, 30_000);
+        return () => {
+            disposed = true;
+            clearInterval(timer);
+        };
+    }, [desktop, token]);
 
     useEffect(() => {
         if (!desktop || !token) return;
@@ -362,6 +391,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             panelOpen,
             setPanelOpen: togglePanel,
             policyKeys,
+            online,
         }),
         [
             desktop,
@@ -379,10 +409,25 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             panelOpen,
             togglePanel,
             policyKeys,
+            online,
         ],
     );
 
-    return <DesktopContext.Provider value={value}>{children}</DesktopContext.Provider>;
+    return (
+        <DesktopContext.Provider value={value}>
+            {children}
+            {/* T4.2 强制在线：离线时全屏遮罩锁定（A3：离线均不可使用） */}
+            {desktop && !online && (
+                <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-3 bg-background/95 backdrop-blur">
+                    <WifiOff className="text-muted-foreground size-10" />
+                    <p className="text-lg font-semibold">已离线</p>
+                    <p className="text-muted-foreground text-sm">
+                        请检查网络连接后重试；本平台所有功能需在线使用。
+                    </p>
+                </div>
+            )}
+        </DesktopContext.Provider>
+    );
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
