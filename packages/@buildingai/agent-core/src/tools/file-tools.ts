@@ -13,6 +13,7 @@ export interface DirEntry {
     name: string;
     type: "file" | "dir";
     size?: number;
+    mtimeMs?: number;
 }
 
 /**
@@ -34,12 +35,12 @@ export class FileTools {
         const entries = fs.readdirSync(abs, { withFileTypes: true });
         return entries.slice(0, 500).map((e) => {
             const item: DirEntry = { name: e.name, type: e.isDirectory() ? "dir" : "file" };
-            if (item.type === "file") {
-                try {
-                    item.size = fs.statSync(path.join(abs, e.name)).size;
-                } catch {
-                    /* race，忽略 */
-                }
+            try {
+                const st = fs.statSync(path.join(abs, e.name));
+                if (item.type === "file") item.size = st.size;
+                item.mtimeMs = st.mtimeMs;
+            } catch {
+                /* race，忽略 */
             }
             return item;
         });
@@ -172,6 +173,53 @@ export class FileTools {
         fs.rmSync(abs, { recursive: true, force: false });
         this.audit.record({ type: "tool.call", action: "fs.delete", detail: { target: abs, entryType: isDir ? "dir" : "file" } });
         return { deleted: true };
+    }
+
+    /**
+     * 最近修改文件（复刻 Kun Recent modified files）：
+     * 有限深度的递归扫描，按 mtime 降序返回前 limit 条。
+     */
+    recentFiles(
+        rootAbs: string,
+        options?: { limit?: number; maxDepth?: number; maxEntries?: number },
+    ): Array<{ path: string; name: string; mtimeMs: number; size?: number }> {
+        const root = path.resolve(rootAbs);
+        this.guardFile(root, "read", false);
+        const limit = Math.min(options?.limit ?? 8, 50);
+        const maxDepth = Math.min(options?.maxDepth ?? 3, 6);
+        const maxEntries = options?.maxEntries ?? 800;
+        const found: Array<{ path: string; name: string; mtimeMs: number; size?: number }> = [];
+        const walk = (dir: string, depth: number): void => {
+            if (depth > maxDepth || found.length >= maxEntries) return;
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(dir, { withFileTypes: true });
+            } catch {
+                return;
+            }
+            for (const e of entries) {
+                if (found.length >= maxEntries) return;
+                if (e.name.startsWith(".")) continue;
+                const full = path.join(dir, e.name);
+                if (e.isDirectory()) {
+                    walk(full, depth + 1);
+                } else if (e.isFile()) {
+                    try {
+                        const st = fs.statSync(full);
+                        found.push({
+                            path: full,
+                            name: e.name,
+                            mtimeMs: st.mtimeMs,
+                            size: st.size,
+                        });
+                    } catch {
+                        /* race，忽略 */
+                    }
+                }
+            }
+        };
+        walk(root, 1);
+        return found.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
     }
 
     /** 策略判定 + 拒绝上抛；审批动作由调用方处理 */

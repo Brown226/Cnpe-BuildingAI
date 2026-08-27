@@ -123,6 +123,14 @@ export const desktopApi = {
         return rpc("fs.delete", { path });
     },
 
+    /** 最近修改文件（右面板 Recent 区） */
+    fsRecent(
+        root: string,
+        limit = 8,
+    ): Promise<{ files: Array<{ path: string; name: string; mtimeMs: number; size?: number }> }> {
+        return rpc("fs.recent", { root, limit });
+    },
+
     /** 激活工作区（置顶 + 引擎新会话 cwd 切换） */
     workspaceSetActive(dir: string): Promise<{ active: string }> {
         return rpc("workspace.setActive", { dir });

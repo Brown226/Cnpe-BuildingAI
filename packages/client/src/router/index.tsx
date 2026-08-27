@@ -26,6 +26,7 @@ import ChatPage from "../pages/chat";
 import { LoginPage } from "../pages/login";
 import { OAuthCallbackPage } from "../pages/login/oauth-callback";
 import AlipayReturnPage from "../pages/payment/alipay-return";
+import { DesktopProjectsSection } from "@/components/desktop/sidebar-projects-section";
 
 export const router = createBrowserRouter([
   {
@@ -81,7 +82,7 @@ export const router = createBrowserRouter([
         element: <PublishChatPage />,
       },
       {
-        element: <DefaultLayout />,
+        element: <DefaultLayout extraSidebarContent={<DesktopProjectsSection />} />,
         errorElement: (
           <DefaultLayout>
             <GlobalError />

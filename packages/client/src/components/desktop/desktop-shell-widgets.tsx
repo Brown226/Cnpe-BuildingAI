@@ -21,22 +21,25 @@ export function DesktopShellWidgets() {
         <>
             <ApprovalCardsHost />
             {ready && (
-                <div className="fixed bottom-4 left-4 z-40 flex flex-col gap-2">
+                <>
+                    {/* 右缘图标列（Kun 布局）：工作区文件面板开关 */}
                     <button
-                        className="bg-background/90 hover:bg-accent rounded-full border p-2 shadow-md backdrop-blur transition hover:scale-105"
+                        className={`bg-background/90 fixed top-1/2 right-2 z-40 -translate-y-1/2 rounded-lg border p-2 shadow-md backdrop-blur transition hover:scale-105 ${
+                            panelOpen ? "text-primary border-primary/40" : ""
+                        }`}
                         title="工作区文件"
                         onClick={() => setPanelOpen((v) => !v)}
                     >
                         <FolderOpen className="size-4" />
                     </button>
                     <button
-                        className="bg-background/90 hover:bg-accent rounded-full border p-2 shadow-md backdrop-blur transition hover:scale-105"
+                        className="bg-background/90 fixed bottom-4 left-4 z-40 rounded-full border p-2 shadow-md backdrop-blur transition hover:scale-105"
                         title="工作区与安全设置"
                         onClick={() => setManagerOpen(true)}
                     >
                         <Settings2 className="size-4" />
                     </button>
-                </div>
+                </>
             )}
             <WorkspaceFilePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
             <WorkspaceManagerDialog open={managerOpen} onOpenChange={setManagerOpen} />

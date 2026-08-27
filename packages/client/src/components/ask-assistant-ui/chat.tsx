@@ -21,8 +21,9 @@ import { useImagePreview } from "@/components/image-preview";
 import { PromptInput } from "./components/input/prompt-input";
 import { Suggestions } from "./components/input/suggestions";
 import { MessageItem } from "./components/message/message-item";
-import { WorkspacePicker } from "@/components/desktop/workspace-picker";
 import { ModelSelector } from "./components/model-selector";
+import { useDesktop } from "@/components/desktop/desktop-provider";
+import { getLocalThread } from "@/services/desktop/thread-store";
 import { useAssistantContext } from "./context";
 
 export interface ChatProps {
@@ -50,11 +51,15 @@ const ChatHeader = memo(function ChatHeader({
   onShare?: () => void;
 }) {
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const { desktop, selectedWorkspace } = useDesktop();
+  const routeId = useParams<{ id: string }>().id;
+  const localTitle = desktop && routeId ? getLocalThread(routeId)?.title : undefined;
+  const displayTitle = localTitle ?? title;
+  const showCrumb = desktop && selectedWorkspace;
 
   return (
     <header className="bg-background relative flex flex-row-reverse items-center justify-between px-4 py-2 md:flex-row">
       <div className="flex shrink-0 items-center gap-2">
-        <WorkspacePicker />
         <ModelSelector
           models={models}
           onModelChange={onSelectModel}
@@ -64,11 +69,19 @@ const ChatHeader = memo(function ChatHeader({
         />
       </div>
 
-      {title && (
+      {displayTitle && (
         <div className="flex items-center gap-2">
           <SidebarTrigger className="md:hidden" />
           <div className="line-clamp-1 md:absolute md:left-1/2 md:-translate-x-1/2">
-            <h1 className="text-base leading-none font-semibold">{title}</h1>
+            <h1 className="text-base leading-none font-semibold">
+              {showCrumb && (
+                <>
+                  <span className="text-muted-foreground">{selectedWorkspace.name}</span>
+                  <span className="text-muted-foreground mx-1.5">▸</span>
+                </>
+              )}
+              {displayTitle}
+            </h1>
           </div>
         </div>
       )}

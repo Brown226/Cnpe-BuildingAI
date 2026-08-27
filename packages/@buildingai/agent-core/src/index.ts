@@ -218,6 +218,7 @@ rpc.register("initialize", (params) => {
                 "fs.create",
                 "fs.rename",
                 "fs.delete",
+                "fs.recent",
                 "exec.run",
                 "policy.getMode",
                 "policy.setMode",
@@ -359,6 +360,16 @@ rpc.register("fs.rename", async (params) => {
 rpc.register("fs.delete", async (params) => {
     requireInitialized();
     return fileTools.deleteEntry(str(params, "path"));
+});
+
+/** 最近修改文件（右侧工作区面板数据源） */
+rpc.register("fs.recent", (params) => {
+    requireInitialized();
+    const p = params as { root?: string; limit?: number; maxDepth?: number };
+    if (!p?.root) throw new RpcError(RpcErrorCodes.InvalidParams, "fs.recent 需要 root");
+    return {
+        files: fileTools.recentFiles(p.root, { limit: p.limit, maxDepth: p.maxDepth }),
+    };
 });
 
 // ── 命令执行 ───────────────────────────────────────────────────────────

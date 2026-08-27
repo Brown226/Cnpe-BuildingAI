@@ -12,6 +12,8 @@ import { validate as isUUID } from "uuid";
 
 import { isDesktop } from "@/services/desktop/desktop-api";
 import { getDesktopAgentTransport } from "@/services/desktop/desktop-agent-transport";
+import { getLocalThread, toUIMessages } from "@/services/desktop/thread-store";
+import { useDesktop } from "@/components/desktop/desktop-provider";
 import { getApiBaseUrl } from "@/utils/api";
 
 /** Delay before running post-stop side effects, giving backend time to persist usage. */
@@ -91,6 +93,7 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
   const location = useLocation();
   const token = useAuthStore((state) => state.auth.token);
   const queryClient = useQueryClient();
+  const { selectedWorkspace } = useDesktop();
 
   /**
    * Tracks pending timeouts scheduled by stop/hydration logic so they can be
@@ -494,6 +497,21 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
     }
   }, [messages.length]);
 
+  /**
+   * 桌面本地会话历史回放：进入 /chat/:id 且服务端无该会话时，
+   * 从本地轻量存储恢复消息流，并重新绑定 transport 线程上下文。
+   */
+  useEffect(() => {
+    if (!isDesktop() || !currentThreadId || messages.length > 0) return;
+    const thread = getLocalThread(currentThreadId);
+    if (!thread || thread.messages.length === 0) return;
+    getDesktopAgentTransport().setThreadContext({
+      threadId: currentThreadId,
+      workspaceId: thread.workspaceId,
+    });
+    setChatMessages(toUIMessages(thread));
+  }, [currentThreadId, messages.length, setChatMessages]);
+
   useEffect(() => {
     if (messages.length === 0) return;
 
@@ -553,6 +571,20 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
       }
       setStatusOverride(null);
       pendingParentIdRef.current = parentId !== undefined ? parentId : lastMessageDbIdRef.current;
+
+      // 桌面本地会话：无路由 id 时先生成（url 仅为前端语义），
+      // 并把线程上下文交给 transport（会话持久化的归属键）
+      let localThreadId = currentThreadId;
+      if (isDesktop()) {
+        if (!localThreadId) {
+          localThreadId = crypto.randomUUID();
+          navigate(`/chat/${localThreadId}`, { replace: true });
+        }
+        getDesktopAgentTransport().setThreadContext({
+          threadId: localThreadId,
+          workspaceId: selectedWorkspace?.id ?? null,
+        });
+      }
 
       if (options?.baseMessages) {
         setChatMessages(options.baseMessages);

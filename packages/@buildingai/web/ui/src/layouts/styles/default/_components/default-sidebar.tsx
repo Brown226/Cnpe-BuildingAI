@@ -102,7 +102,13 @@ function useMenuItems(
   }, [menus, conversationItems, homeAction]);
 }
 
-export function DefaultAppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function DefaultAppSidebar({
+  extraContent,
+  ...props
+}: React.ComponentProps<typeof Sidebar> & {
+  /** 宿主注入的额外侧栏分组（如桌面端「项目」区），渲染在主导航之后 */
+  extraContent?: React.ReactNode;
+}) {
   const navigate = useNavigate();
   const { userInfo } = useAuthStore((state) => state.auth);
   const { data: menuConfig, isLoading: isMenuLoading } = useDecorateMenuQuery();
@@ -169,6 +175,7 @@ export function DefaultAppSidebar({ ...props }: React.ComponentProps<typeof Side
       </SidebarHeader>
       <SidebarContent>
         <DefaultNavMain items={navMain} isLoading={isMenuLoading} />
+        {extraContent}
         {(menuConfig?.groups ?? [])
           .filter((group) => !group.isHidden)
           .map((group) => (

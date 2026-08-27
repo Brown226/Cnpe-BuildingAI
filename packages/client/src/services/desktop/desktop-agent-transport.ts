@@ -9,6 +9,7 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 
 import { onAgentEvent, rpc } from "./desktop-api";
+import { appendThreadMessages, type LocalThreadMessage } from "./thread-store";
 
 /** sidecar 事件形态（对应 agent-core EngineEvent） */
 interface EngineEventDto {
@@ -21,6 +22,12 @@ interface EngineEventDto {
     durationMs?: number;
     message?: string;
     stopReason?: "end_turn" | "aborted" | "max_steps";
+}
+
+/** 当前回合归属（由 use-chat-stream 在发送/切换时设置） */
+interface ThreadContext {
+    threadId: string;
+    workspaceId: string | null;
 }
 
 /** 每个聊天线程一个本地会话；线程 id → Pi sessionId */
@@ -49,6 +56,17 @@ function extractUserText(messages: UIMessage[]): string {
 }
 
 export class DesktopAgentTransport implements ChatTransport<UIMessage> {
+    /** 当前线程上下文（use-chat-stream 注入；会话持久化的归属键） */
+    private threadContext: ThreadContext | null = null;
+
+    setThreadContext(ctx: ThreadContext | null): void {
+        this.threadContext = ctx;
+    }
+
+    private get chatKey(): string {
+        return this.threadContext?.threadId ?? "default";
+    }
+
     async sendMessages(options: {
         trigger: "submit-message" | "regenerate-message";
         chatId: string;
@@ -59,11 +77,11 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
         const text = extractUserText(options.messages);
         return new ReadableStream<UIMessageChunk>({
             start: (controller) => {
-                void this.pump(controller, options.chatId, text, options.abortSignal);
+                void this.pump(controller, this.chatKey, text, options.abortSignal);
             },
             cancel: () => {
                 // 下游放弃消费（组件卸载/切换会话）：中断本地引擎回合
-                void this.abortOf(options.chatId);
+                void this.abortOf(this.chatKey);
             },
         });
     }
@@ -119,6 +137,11 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                 close();
                 return;
             }
+
+            // 会话持久化累计器（轻量文本流，工具调用记摘要行）
+            const threadMessages: LocalThreadMessage[] = [{ role: "user", text }];
+            let assistantText = "";
+            let toolSummary = "";
 
             // 单步渲染整轮回合（工具循环在内）
             controller.enqueue({ type: "start", messageId: crypto.randomUUID() });
@@ -176,6 +199,7 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                             id: openTextId,
                             delta: ev.delta ?? "",
                         });
+                        assistantText += ev.delta ?? "";
                         break;
                     }
                     case "tool_call_start": {
@@ -193,6 +217,7 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                         break;
                     }
                     case "tool_call_end": {
+                        toolSummary += `\n[工具 ${ev.name ?? "tool"} ${ev.ok ? "完成" : "失败"} · ${ev.durationMs ?? 0}ms]`;
                         const output =
                             typeof ev.resultPreview === "string"
                                 ? { summary: ev.resultPreview.slice(0, 2000) }
@@ -220,6 +245,20 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                         } else {
                             controller.enqueue({ type: "finish-step" });
                             controller.enqueue({ type: "finish", finishReason: "stop" });
+                        }
+                        // 持久化本轮轻量文本流（供「项目」侧栏与历史回放）
+                        if (this.threadContext) {
+                            const msgs = [...threadMessages];
+                            const full =
+                                assistantText +
+                                (toolSummary.trim() ? `\n${toolSummary.trim()}` : "");
+                            if (full.trim()) msgs.push({ role: "assistant", text: full });
+                            appendThreadMessages(
+                                chatId,
+                                this.threadContext.workspaceId,
+                                msgs,
+                                text,
+                            );
                         }
                         close();
                         break;
