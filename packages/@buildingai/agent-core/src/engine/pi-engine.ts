@@ -12,9 +12,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore, type Api, type Model } from "@earendil-works/pi-ai";
 import { logStderr } from "../protocol/server.js";
-import type { AgentEngine, EngineEvent, EngineStartConfig, ModelRef, UserInput } from "./types.js";
+import type { AgentEngine, AgentMode, EngineEvent, EngineStartConfig, ModelRef, UserInput } from "./types.js";
 import type { PlatformTool } from "../tools/types.js";
 import { toPiTools } from "./platform-tool-adapter.js";
+import { fingerprintPrefix, PrefixFingerprintTracker } from "./prefix-fingerprint.js";
 
 /** 会话运行时：pi session + 事件泵 + 挂起 resolve */
 interface LiveSession {
@@ -23,6 +24,7 @@ interface LiveSession {
     cwd: string;
     agentDir: string;
     unsub: () => void;
+    mode: AgentMode;
 }
 
 const PLATFORM_SYSTEM_PROMPT = [
@@ -30,6 +32,24 @@ const PLATFORM_SYSTEM_PROMPT = [
     "你通过平台提供的工具读写工作区文件、执行命令、处理文档；",
     "所有操作都受企业安全策略约束，被拒绝时向用户解释原因即可，不要重试被明确拒绝的操作。",
 ].join("\n");
+
+/**
+ * 模式指令表（T1.1 双模式框架）。
+ * 经 resourceLoader.appendSystemPrompt 作为第二 system 消息注入（Kun 式：
+ * 模式指令位于稳定前缀之后、动态数据之前），让模型在每轮请求中明确当前任务上下文。
+ */
+const MODE_INSTRUCTIONS: Record<AgentMode, string> = {
+    code: [
+        "【当前模式：Code 编程模式】",
+        "你正在协助用户完成软件开发任务：阅读与修改代码、运行命令与测试、检查 Git 变更。",
+        "优先使用文件/命令工具直接完成任务；改动前先理解相关代码，完成后提示用户审查 diff。",
+    ].join("\n"),
+    work: [
+        "【当前模式：Work 办公模式】",
+        "你正在协助用户完成办公任务：撰写与整理文档、分析表格、生成报告与演示材料。",
+        "优先使用文档/表格工具处理 Office 文件；生成正式交付物（docx/xlsx/pptx）时告知用户保存位置。",
+    ].join("\n"),
+};
 
 /**
  * Pi 引擎实现（ADR-02）：把 @earendil-works/pi-coding-agent 装进
@@ -51,6 +71,8 @@ export class PiEngine implements AgentEngine {
     private tempFiles: string[] = [];
     /** start() 解析出的最终上游地址（网关或开发端点） */
     private resolvedBaseUrl = "";
+    /** T1.2 前缀指纹：按模式跟踪不可变前缀基准，每回合校验漂移 */
+    private fingerprints = new PrefixFingerprintTracker();
 
     async start(config: EngineStartConfig): Promise<void> {
         this.startConfig = config;
@@ -80,7 +102,29 @@ export class PiEngine implements AgentEngine {
 
     registerTools(tools: PlatformTool[]): void {
         this.tools = [...tools];
+        // 工具注册变化 → 前缀变化：清空指纹基准，下一回合重建（避免误报漂移）
+        this.fingerprints = new PrefixFingerprintTracker();
         // 后注册的工具同步进已存在的会话不可行——重启会话才生效；当前为可接受语义
+    }
+
+    /** T1.2：校验当前前缀指纹，漂移时告警并重建基准（返回基准是否稳定） */
+    private verifyPrefix(mode: AgentMode): void {
+        const fp = fingerprintPrefix({
+            systemPrompt: PLATFORM_SYSTEM_PROMPT,
+            appendSystemPrompt: [MODE_INSTRUCTIONS[mode]],
+            tools: this.tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                parameters: t.parameters,
+            })),
+        });
+        if (!this.fingerprints.verify(mode, fp)) {
+            logStderr(
+                `[cache] 前缀指纹漂移（mode=${mode}）——缓存命中率将下降；` +
+                    `可能是工具列表或系统提示发生变化，已重建基准`,
+            );
+            this.fingerprints.rebaseline(mode, fp);
+        }
     }
 
     /**
@@ -103,7 +147,9 @@ export class PiEngine implements AgentEngine {
     /** 回合启动：建订阅 → 启动 prompt（不 await 完成即返回） */
     private async beginTurn(sessionId: string, input: UserInput): Promise<void> {
         try {
-            const live = await this.ensureSession(sessionId);
+            const mode = input.mode ?? "code";
+            this.verifyPrefix(mode);
+            const live = await this.ensureSession(sessionId, mode);
             const queue = this.getQueue(sessionId);
             const push = (event: EngineEvent): void => {
                 queue.push(event);
@@ -161,15 +207,32 @@ export class PiEngine implements AgentEngine {
                                 callId: call.callId,
                                 ok: call.ok,
                                 durationMs: Date.now() - call.startedAt,
+                                name: call.name,
                             });
                         stepToolCalls = new Map();
                         const usage = message.usage as Record<string, number> | undefined;
-                        if (usage)
+                        if (usage) {
+                            const inputTokens = usage.input ?? usage.promptTokens ?? 0;
+                            const outputTokens = usage.output ?? usage.completionTokens ?? 0;
+                            // T1.2 缓存可观测：透出 cacheRead/cacheWrite（部分端点缺省为 0）
+                            const cacheReadTokens =
+                                usage.cacheRead ?? usage.cacheReadInputTokens ?? 0;
+                            const cacheWriteTokens =
+                                usage.cacheWrite ?? usage.cacheWriteInputTokens ?? 0;
+                            const hitRatio =
+                                inputTokens > 0 ? Math.round((cacheReadTokens / inputTokens) * 100) : 0;
+                            logStderr(
+                                `[cache] mode=${live.mode} in=${inputTokens} out=${outputTokens} ` +
+                                    `cacheRead=${cacheReadTokens} cacheWrite=${cacheWriteTokens} hit≈${hitRatio}%`,
+                            );
                             push({
                                 type: "usage",
-                                inputTokens: usage.input ?? usage.promptTokens ?? 0,
-                                outputTokens: usage.output ?? usage.completionTokens ?? 0,
+                                inputTokens,
+                                outputTokens,
+                                cacheReadTokens,
+                                cacheWriteTokens,
                             });
+                        }
                         break;
                     }
                     default:
@@ -300,7 +363,7 @@ export class PiEngine implements AgentEngine {
         } as unknown as Model<Api>;
     }
 
-    private async ensureSession(sessionId: string): Promise<LiveSession> {
+    private async ensureSession(sessionId: string, mode: AgentMode): Promise<LiveSession> {
         const existing = this.sessions.get(sessionId);
         if (existing) return existing;
         if (!this.runtime || !this.startConfig)
@@ -318,6 +381,8 @@ export class PiEngine implements AgentEngine {
             cwd,
             agentDir,
             systemPrompt: PLATFORM_SYSTEM_PROMPT,
+            // T1.1 双模式：模式指令作为第二 system 消息注入（Kun 式，位于稳定前缀之后）
+            appendSystemPrompt: [MODE_INSTRUCTIONS[mode]],
             noExtensions: true,
             noSkills: true,
             noPromptTemplates: true,
@@ -343,6 +408,7 @@ export class PiEngine implements AgentEngine {
             cwd,
             agentDir,
             unsub: () => undefined,
+            mode,
         };
         this.sessions.set(sessionId, live);
         return live;

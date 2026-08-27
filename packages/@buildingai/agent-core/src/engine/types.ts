@@ -48,18 +48,46 @@ export interface ModelRef {
     thinkingLevel?: string;
 }
 
+/**
+ * 工作台模式（T1.1 双模式框架）。
+ * 模式是会话属性：会话创建时确定，不可中途变更（切换模式=切到该模式的会话）。
+ * 模式指令经 resourceLoader.appendSystemPrompt 注入（Kun"第二 system 消息"等价实现）。
+ */
+export type AgentMode = "code" | "work";
+
 export interface UserInput {
     text: string;
     /** 本地文件引用（工作区内路径），供多模态场景使用 */
     fileRefs?: string[];
+    /**
+     * 会话模式：仅在建会话（首次 sendMessage）时生效，之后被忽略。
+     * 缺省视为 "code"。
+     */
+    mode?: AgentMode;
 }
 
 export type EngineEvent =
     | { type: "text_delta"; delta: string }
     | { type: "thinking_delta"; delta: string }
     | { type: "tool_call_start"; callId: string; name: string; argsPreview: string }
-    | { type: "tool_call_end"; callId: string; ok: boolean; durationMs: number; resultPreview?: string }
-    | { type: "usage"; inputTokens: number; outputTokens: number }
+    | {
+          type: "tool_call_end";
+          callId: string;
+          ok: boolean;
+          durationMs: number;
+          resultPreview?: string;
+          /** 工具名（聚合事件补齐，供摘要落盘） */
+          name?: string;
+      }
+    | {
+          type: "usage";
+          inputTokens: number;
+          outputTokens: number;
+          /** 模型缓存命中读取（T1.2 缓存优先可观测性；缺省 0） */
+          cacheReadTokens?: number;
+          /** 模型缓存写入（T1.2 缓存优先可观测性；缺省 0） */
+          cacheWriteTokens?: number;
+      }
     | { type: "session_created"; sessionId: string }
     | { type: "error"; message: string; recoverable: boolean }
     | { type: "done"; stopReason: "end_turn" | "aborted" | "max_steps" };

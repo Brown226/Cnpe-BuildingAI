@@ -5,7 +5,6 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
@@ -30,6 +29,7 @@ import { runtimeConfig } from "./state/runtime-config.js";
 import type { ConfigPack } from "./state/runtime-config.js";
 import { PiEngine } from "./engine/pi-engine.js";
 import type { EngineEvent } from "./engine/types.js";
+import { SessionJsonlStore } from "./session/jsonl-store.js";
 
 const rpc = new RpcServer();
 const audit = new AuditCollector();
@@ -40,6 +40,8 @@ const fileTools = new FileTools(workspaces, policy, approvals, audit);
 const executor = new CommandExecutor(policy, approvals, audit);
 const officeTools = new OfficeTools({ workspaces, policy, approvals, audit });
 const engine = new PiEngine();
+/** T1.3 会话 JSONL 存储：initialize 时按 sessionsDir（或默认目录）初始化 */
+let sessions: SessionJsonlStore | null = null;
 
 /** 平台自有工具：策略管控下的文件/命令能力，以受控形式交给 Agent 引擎 */
 const platformTools: PlatformTool[] = [
@@ -206,6 +208,8 @@ rpc.register("initialize", (params) => {
     policy.configure(pack.policy);
     const pack0 = runtimeConfig.require()!;
     audit.configure(pack0.serverUrl, pack0.token, pack0.userId);
+    // T1.3：会话 JSONL 根目录（桌面端下发；缺省系统临时目录）
+    sessions = new SessionJsonlStore(pack.sessionsDir || SessionJsonlStore.defaultRoot());
     void bootstrapEngineOnce();
     return {
         protocolVersion: "1.0",
@@ -214,6 +218,8 @@ rpc.register("initialize", (params) => {
                 "session.create",
                 "session.send",
                 "session.abort",
+                "session.list",
+                "session.get",
                 "fs.list",
                 "fs.read",
                 "fs.write",
@@ -514,19 +520,47 @@ rpc.register("office.exportXlsx", async (params) => {
 
 // ── Agent 引擎通道 ─────────────────────────────────────────────────────
 
-rpc.register("session.create", () => ({ sessionId: randomUUID() }));
+/**
+ * 创建会话。mode 为会话属性（T1.1 双模式）：code | work，缺省 code；
+ * 会话创建后模式固定，切换模式=新建该模式的会话。
+ * T1.3：会话元数据落 JSONL（meta.json），正文随事件流落 messages.jsonl。
+ */
+rpc.register("session.create", (params) => {
+    const mode = normalizeMode((params as { mode?: string } | undefined)?.mode);
+    const cwd = process.env.AGENT_CORE_WORKSPACE ?? "";
+    const meta = sessions!.createSession(mode, cwd);
+    return { sessionId: meta.id, mode };
+});
+
+/** 列出本地会话元数据（侧栏/恢复用；按 updatedAt 倒序） */
+rpc.register("session.list", () => {
+    requireInitialized();
+    return { sessions: sessions!.listMeta() };
+});
+
+/** 读取会话详情：元数据 + 对话文本流（回放用；正文只存本机） */
+rpc.register("session.get", (params) => {
+    requireInitialized();
+    const id = str(params, "sessionId");
+    return { meta: sessions!.getMeta(id), messages: sessions!.readMessages(id) };
+});
+
+function normalizeMode(mode: string | undefined): "code" | "work" {
+    return mode === "work" ? "work" : "code";
+}
 
 /**
  * 发送用户消息：立即返回 accepted；事件以
  * notification(engine/event, {sessionId, event}) 形式流出，
  * 消费方收到 type=done/error 即一轮结束。
+ * mode 仅在首次发送（建会话）时生效，之后被忽略。
  */
 rpc.register("session.send", (params) => {
     requireInitialized();
-    const p = params as { sessionId?: string; text?: string };
+    const p = params as { sessionId?: string; text?: string; mode?: string };
     if (!p?.sessionId || !p.text)
         throw new RpcError(RpcErrorCodes.InvalidParams, "session.send 需要 sessionId 与 text");
-    void pumpSessionEvents(p.sessionId, p.text).catch((err) => {
+    void pumpSessionEvents(p.sessionId, p.text, p.mode).catch((err) => {
         logStderr(`session.send 泵异常: ${String(err)}`);
         rpc.notify("engine/event", {
             sessionId: p.sessionId,
@@ -536,8 +570,26 @@ rpc.register("session.send", (params) => {
     return { accepted: true };
 });
 
-async function pumpSessionEvents(sessionId: string, text: string): Promise<void> {
-    for await (const event of engine.sendMessage(sessionId, { text })) {
+async function pumpSessionEvents(sessionId: string, text: string, mode?: string): Promise<void> {
+    // T1.3：user 消息先落盘；事件流累计 assistant 文本与工具摘要，done/error 时落盘
+    sessions?.appendMessage(sessionId, { role: "user", text, ts: Date.now() });
+    let assistantText = "";
+    let toolSummary = "";
+    for await (const event of engine.sendMessage(sessionId, { text, mode: normalizeMode(mode) })) {
+        if (event.type === "text_delta") assistantText += event.delta;
+        else if (event.type === "tool_call_end")
+            toolSummary += `\n[工具 ${event.name ?? "tool"} ${event.ok ? "完成" : "失败"} · ${event.durationMs ?? 0}ms]`;
+        else if (event.type === "done" || event.type === "error") {
+            const full = assistantText + (toolSummary.trim() ? `\n${toolSummary.trim()}` : "");
+            if (full.trim())
+                sessions?.appendMessage(sessionId, { role: "assistant", text: full, ts: Date.now() });
+            // 首次对话自动生成标题（与新客户端 titleSeed 语义一致）
+            const meta = sessions?.getMeta(sessionId);
+            if (meta && meta.title === "新对话") {
+                const title = text.replace(/\s+/g, " ").trim().slice(0, 40) || "新对话";
+                sessions?.updateMeta(sessionId, { title });
+            }
+        }
         rpc.notify("engine/event", { sessionId, event });
     }
 }
@@ -568,8 +620,6 @@ function str(params: unknown, key: string): string {
         throw new RpcError(RpcErrorCodes.InvalidParams, `缺少字符串参数 ${key}`);
     return v;
 }
-
-void randomUUID;
 
 // ── 启动与停机 ─────────────────────────────────────────────────────────
 

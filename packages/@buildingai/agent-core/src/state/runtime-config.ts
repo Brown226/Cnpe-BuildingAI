@@ -13,6 +13,8 @@ export interface ConfigPack {
     workspaces?: string[];
     /** 默认模型标识（管理端从可用模型列表中选择下发） */
     defaultModel?: { provider?: string; modelId: string };
+    /** 会话 JSONL 落盘根目录（T1.3；缺省为系统临时目录下的 huashu-sessions） */
+    sessionsDir?: string;
 }
 
 class RuntimeConfigStore {
