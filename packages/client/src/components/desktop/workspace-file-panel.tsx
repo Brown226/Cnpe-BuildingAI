@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useCallback, useEffect, useState } from "react";
 
@@ -62,7 +63,17 @@ export function WorkspaceFilePanel({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [creating, setCreating] = useState<{ parent: string; type: "file" | "directory"; value: string } | null>(null);
   const [renaming, setRenaming] = useState<{ path: string; value: string } | null>(null);
-  const [preview, setPreview] = useState<{ path: string; text: string; truncated: boolean } | null>(null);
+  const [preview, setPreview] = useState<{
+    path: string;
+    text: string;
+    truncated: boolean;
+    /** T2.3 工件预览分型：text 可编辑 / image / pdf / html / xlsx 表格 */
+    kind: "text" | "image" | "pdf" | "html" | "xlsx";
+    rows?: unknown[][];
+    sheetName?: string;
+  } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
 
   const root = selectedWorkspace?.path ?? null;
@@ -167,28 +178,69 @@ export function WorkspaceFilePanel({
 
   const openFile = async (path: string) => {
     setPreviewLoading(true);
-    setPreview({ path, text: "", truncated: false });
+    setPreview({ path, text: "", truncated: false, kind: "text" });
     setTab("preview");
+    setEditing(false);
+    setEditText("");
     const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
     const isOffice = [".docx", ".xlsx", ".xlsm", ".csv"].includes(ext);
     try {
-      if (isOffice) {
-        // docx/xlsx 走 office.parse 提取文本（Kun 多格式预览的文本级实现）
+      if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"].includes(ext)) {
+        // T2.3 图片预览（Tauri 资产协议）
+        setPreview({ path, text: "", truncated: false, kind: "image" });
+      } else if (ext === ".pdf") {
+        setPreview({ path, text: "", truncated: false, kind: "pdf" });
+      } else if (ext === ".html" || ext === ".htm") {
+        setPreview({ path, text: "", truncated: false, kind: "html" });
+      } else if (ext === ".xlsx" || ext === ".xlsm") {
+        // T2.3 表格工件：结构化读取 → 表格编辑器（可回写）
+        const r = await desktopApi.officeReadXlsx(path);
+        setPreview({
+          path,
+          text: "",
+          truncated: false,
+          kind: "xlsx",
+          rows: r.rows,
+          sheetName: r.sheetName,
+        });
+      } else if (isOffice) {
+        // docx/csv 走 office.parse 提取文本（Kun 多格式预览的文本级实现）
         const r = await desktopApi.officeParse(path);
         setPreview({
           path,
           text: r.text || `（${ext} 文档无可提取文本）`,
           truncated: r.truncated,
+          kind: "text",
         });
       } else {
         const r = await desktopApi.fsRead(path);
-        setPreview({ path, text: r.content, truncated: r.truncated });
+        setPreview({ path, text: r.content, truncated: r.truncated, kind: "text" });
       }
     } catch (err) {
-      setPreview({ path, text: `（无法预览：${String(err)}）`, truncated: false });
+      setPreview({ path, text: `（无法预览：${String(err)}）`, truncated: false, kind: "text" });
     } finally {
       setPreviewLoading(false);
     }
+  };
+
+  /** T2.3 文本编辑回写（保存 → fs.write 覆盖） */
+  const saveTextEdit = async () => {
+    if (!preview) return;
+    await withBusy(async () => {
+      await desktopApi.fsWrite(preview.path, editText);
+      toast.success("已保存");
+      setEditing(false);
+      setPreview({ ...preview, text: editText });
+    });
+  };
+
+  /** T2.3 表格编辑回写（单元格编辑 → exportXlsx 覆盖） */
+  const saveSheetEdit = async () => {
+    if (!preview || !preview.rows) return;
+    await withBusy(async () => {
+      await desktopApi.officeExportXlsx(preview.path, preview.rows, preview.sheetName);
+      toast.success("已保存表格");
+    });
   };
 
   const withBusy = async (fn: () => Promise<void>) => {
@@ -521,10 +573,118 @@ export function WorkspaceFilePanel({
             <div className="flex flex-1 items-center justify-center">
               <Loader2 className="text-muted-foreground size-4 animate-spin" />
             </div>
+          ) : preview?.kind === "image" ? (
+            <div className="flex flex-1 items-center justify-center overflow-auto p-3">
+              <img
+                src={convertFileSrc(preview.path)}
+                alt={preview.path}
+                className="max-h-full max-w-full rounded object-contain"
+              />
+            </div>
+          ) : preview?.kind === "pdf" ? (
+            <iframe
+              src={convertFileSrc(preview.path)}
+              title={preview.path}
+              className="h-full w-full"
+            />
+          ) : preview?.kind === "html" ? (
+            <iframe
+              src={convertFileSrc(preview.path)}
+              title={preview.path}
+              sandbox="allow-same-origin"
+              className="h-full w-full"
+            />
+          ) : preview?.kind === "xlsx" ? (
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex items-center gap-2 border-b px-3 py-1.5">
+                <span className="text-muted-foreground text-[11px]">
+                  {preview.sheetName} · {preview.rows?.length ?? 0} 行
+                </span>
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => void saveSheetEdit()}
+                  className="text-primary hover:bg-accent rounded px-2 py-0.5 text-[11px] font-medium"
+                >
+                  保存表格
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto">
+                <table className="border-collapse text-[11px]">
+                  <tbody>
+                    {(preview.rows ?? []).map((row, ri) => (
+                      <tr key={ri}>
+                        {Array.from({ length: Math.max(row.length, 1) }).map((_, ci) => (
+                          <td key={ci} className="border-border border p-0">
+                            <input
+                              value={String(row[ci] ?? "")}
+                              onChange={(e) => {
+                                const rows = [...(preview.rows ?? [])];
+                                rows[ri] = [...rows[ri]!];
+                                rows[ri]![ci] = e.target.value;
+                                setPreview({ ...preview, rows });
+                              }}
+                              className="bg-background h-6 w-24 min-w-16 px-1.5 outline-none focus:bg-accent/40"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : editing ? (
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex items-center gap-2 border-b px-3 py-1.5">
+                <span className="text-muted-foreground text-[11px]">编辑中</span>
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => void saveTextEdit()}
+                  className="text-primary hover:bg-accent rounded px-2 py-0.5 text-[11px] font-medium"
+                >
+                  保存
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(false);
+                    setEditText("");
+                  }}
+                  className="text-muted-foreground hover:bg-accent rounded px-2 py-0.5 text-[11px]"
+                >
+                  取消
+                </button>
+              </div>
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                className="flex-1 resize-none p-3 font-mono text-xs outline-none"
+                spellCheck={false}
+              />
+            </div>
           ) : (
-            <pre className="flex-1 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
-              {preview?.text || "（空文件）"}
-            </pre>
+            <div className="flex flex-1 flex-col overflow-hidden">
+              {preview?.kind === "text" && (
+                <div className="flex items-center border-b px-3 py-1.5">
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditText(preview.text);
+                      setEditing(true);
+                    }}
+                    className="text-primary hover:bg-accent rounded px-2 py-0.5 text-[11px] font-medium"
+                  >
+                    编辑
+                  </button>
+                </div>
+              )}
+              <pre className="flex-1 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
+                {preview?.text || "（空文件）"}
+              </pre>
+            </div>
           )}
           {preview?.truncated && (
             <div className="text-muted-foreground border-t px-3 py-1.5 text-[11px]">

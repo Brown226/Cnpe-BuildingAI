@@ -157,6 +157,27 @@ export const desktopApi = {
         return rpc("office.parse", { path });
     },
 
+    /** T2.3 结构化读取 xlsx（首工作表 → 二维数组，前端表格编辑器用） */
+    officeReadXlsx(
+        path: string,
+    ): Promise<{
+        rows: unknown[][];
+        sheetName: string;
+        rowCount: number;
+        colCount: number;
+    }> {
+        return rpc("office.readXlsx", { path });
+    },
+
+    /** T2.3 表格编辑回写：二维数组 → xlsx（覆盖原路径） */
+    officeExportXlsx(
+        path: string,
+        rows: unknown[][],
+        sheetName?: string,
+    ): Promise<{ summary: string; bytesWritten: number; rowCount: number }> {
+        return rpc("office.exportXlsx", { path, rows, sheetName });
+    },
+
     /** 本地会话元数据列表（T1.3 JSONL；按 updatedAt 倒序） */
     sessionList(): Promise<{
         sessions: Array<{

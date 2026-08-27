@@ -237,6 +237,7 @@ rpc.register("initialize", (params) => {
                 "office.parse",
                 "office.exportDocx",
                 "office.exportXlsx",
+                "office.readXlsx",
             ],
             engineReady: false,
         },
@@ -521,6 +522,14 @@ rpc.register("office.exportXlsx", async (params) => {
     if (!p?.path || !Array.isArray(p.rows))
         throw new RpcError(RpcErrorCodes.InvalidParams, "需要 path 与 rows");
     return officeTools.exportXlsx(p.path, p.rows, p.sheetName);
+});
+
+/** T2.3 工件表格：结构化读取 xlsx（前端表格编辑器数据源） */
+rpc.register("office.readXlsx", async (params) => {
+    requireInitialized();
+    const p = params as { path?: string };
+    if (!p?.path) throw new RpcError(RpcErrorCodes.InvalidParams, "需要 path");
+    return officeTools.readXlsx(p.path);
 });
 
 // ── Agent 引擎通道 ─────────────────────────────────────────────────────

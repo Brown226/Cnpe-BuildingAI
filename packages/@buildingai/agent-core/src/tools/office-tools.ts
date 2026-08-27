@@ -158,6 +158,41 @@ export class OfficeTools {
         return { summary: `已生成 Excel 表格：${abs}（${rows.length} 行）`, bytesWritten: out.length, rowCount: rows.length };
     }
 
+    /**
+     * T2.3 工件表格：结构化读取 xlsx（首工作表 → 二维数组），
+     * 供前端表格编辑器预览与回写（read → 编辑 → exportXlsx 同路径覆盖）。
+     */
+    async readXlsx(
+        fileAbs: string,
+    ): Promise<{ rows: unknown[][]; sheetName: string; rowCount: number; colCount: number }> {
+        const abs = path.resolve(fileAbs);
+        const decision = this.deps.policy.decideFileOp(abs, "read");
+        if (decision.action === "deny") {
+            throw new RpcError(
+                RpcErrorCodes.PolicyDenied,
+                decision.reason ?? "策略拒绝读取该路径",
+                { rule: decision.rule },
+            );
+        }
+        if (!existsSync(abs)) throw new RpcError(RpcErrorCodes.InvalidParams, `文件不存在：${abs}`);
+        const wb = XLSX.readFile(abs, { cellDates: false });
+        const first = wb.SheetNames[0];
+        if (!first) return { rows: [], sheetName: "Sheet1", rowCount: 0, colCount: 0 };
+        const rows = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[first]!, {
+            header: 1,
+            defval: "",
+            raw: true,
+        }) as unknown[][];
+        // 防止超大表打爆内存：行/列上限后截断
+        const capped = rows.slice(0, 2000).map((r) => r.slice(0, 200));
+        return {
+            rows: capped,
+            sheetName: first,
+            rowCount: capped.length,
+            colCount: capped[0]?.length ?? 0,
+        };
+    }
+
     // ── 内部 ───────────────────────────────────────────────────────────
 
     /**
