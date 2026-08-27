@@ -48,6 +48,9 @@ interface DesktopContextValue {
     activeMode: "code" | "work";
     /** 切换模式（新建会话进入该模式；已有会话按模式过滤显示） */
     setMode: (mode: "code" | "work") => void;
+    /** T1.6 右栏文件面板开合（三栏常驻，可折叠） */
+    panelOpen: boolean;
+    setPanelOpen: (open: boolean) => void;
 }
 
 const DesktopContext = createContext<DesktopContextValue>({
@@ -63,6 +66,8 @@ const DesktopContext = createContext<DesktopContextValue>({
     removeWorkspace: async () => undefined,
     activeMode: "code",
     setMode: () => undefined,
+    panelOpen: false,
+    setPanelOpen: () => undefined,
 });
 
 const MODE_STORAGE_KEY = "huashu.desktop.mode.v1";
@@ -95,6 +100,25 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
     const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [activeMode, setActiveMode] = useState<"code" | "work">(() => loadMode());
+    const [panelOpen, setPanelOpen] = useState<boolean>(() => {
+        if (typeof window === "undefined") return false;
+        try {
+            return window.localStorage.getItem("huashu.desktop.panel.v1") !== "0";
+        } catch {
+            return true;
+        }
+    });
+    const togglePanel = useCallback(() => {
+        setPanelOpen((v) => {
+            const next = !v;
+            try {
+                window.localStorage.setItem("huashu.desktop.panel.v1", next ? "1" : "0");
+            } catch {
+                /* 忽略存储失败 */
+            }
+            return next;
+        });
+    }, []);
     const selectedWorkspace = useMemo(
         () => workspaces.find((w) => w.id === selectedId) ?? null,
         [workspaces, selectedId],
@@ -282,6 +306,8 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             removeWorkspace,
             activeMode,
             setMode,
+            panelOpen,
+            setPanelOpen: togglePanel,
         }),
         [
             desktop,
@@ -296,6 +322,8 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             removeWorkspace,
             activeMode,
             setMode,
+            panelOpen,
+            togglePanel,
         ],
     );
 

@@ -41,7 +41,16 @@ const joinPath = (dir: string, name: string) => `${dir.replace(/[\\/]+$/, "")}\\
 const relFromRoot = (root: string, p: string) =>
   p.startsWith(root) ? p.slice(root.length).replace(/^[\\/]+/, "") : p;
 
-export function WorkspaceFilePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function WorkspaceFilePanel({
+  open,
+  onClose,
+  embedded = false,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** T1.6 三栏布局：true 时作为常驻右栏（flex 子元素），false 时为固定弹出浮层 */
+  embedded?: boolean;
+}) {
   const { desktop, selectedWorkspace, refreshWorkspacesSignal } = useDesktop();
   const [tab, setTab] = useState<"files" | "preview">("files");
   const [tree, setTree] = useState<Record<string, Entry[]>>({});
@@ -340,7 +349,13 @@ export function WorkspaceFilePanel({ open, onClose }: { open: boolean; onClose: 
     });
 
   return (
-    <div className="bg-background fixed inset-y-0 right-0 z-40 flex w-80 flex-col border-l shadow-lg">
+    <div
+      className={
+        embedded
+          ? "bg-background flex h-full w-80 shrink-0 flex-col border-l"
+          : "bg-background fixed inset-y-0 right-0 z-40 flex w-80 flex-col border-l shadow-lg"
+      }
+    >
       {/* tab 行：文件 / 预览（Kun 布局） */}
       <div className="flex items-center gap-1 border-b px-2 pt-2">
         <button
