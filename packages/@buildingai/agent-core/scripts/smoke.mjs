@@ -215,6 +215,21 @@ async function main() {
         console.log(reapproval13 ? "!!! 仍弹卡，doom-loop 未生效" : "未再弹卡 ✓");
     }
 
+    console.log("== 14. 定时任务（schedule.create/list，T5.1）");
+    {
+        const task = await request("schedule.create", {
+            name: "冒烟任务",
+            instructions: "你好",
+            schedule: { kind: "daily", hour: 9, minute: 0, timezone: "Asia/Shanghai" },
+            mode: "code",
+        });
+        console.log("创建任务 ✓ id:", task.task.id.slice(0, 8));
+        const lst = await request("schedule.list", {});
+        console.log("任务列表 ✓ count:", lst.tasks.length, "records:", lst.records.length);
+        await request("schedule.delete", { id: task.task.id });
+        console.log("删除任务 ✓");
+    }
+
     console.log("\n全部冒烟用例执行完毕。工作目录:", workDir);
 }
 

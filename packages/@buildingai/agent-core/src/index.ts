@@ -30,6 +30,8 @@ import type { ConfigPack } from "./state/runtime-config.js";
 import { PiEngine } from "./engine/pi-engine.js";
 import type { EngineEvent } from "./engine/types.js";
 import { SessionJsonlStore } from "./session/jsonl-store.js";
+import { AutomationScheduler } from "./schedule/scheduler.js";
+import { assertAutomationTimezone } from "./schedule/schedules.js";
 
 const rpc = new RpcServer();
 const audit = new AuditCollector();
@@ -42,6 +44,8 @@ const officeTools = new OfficeTools({ workspaces, policy, approvals, audit });
 const engine = new PiEngine();
 /** T1.3 会话 JSONL 存储：initialize 时按 sessionsDir（或默认目录）初始化 */
 let sessions: SessionJsonlStore | null = null;
+/** T5.1 定时任务调度器（initialize 后初始化并启动） */
+let scheduler: AutomationScheduler | null = null;
 
 /** 平台自有工具：策略管控下的文件/命令能力，以受控形式交给 Agent 引擎。
  *  T2.4 工具按模式隔离：list_dir/read_file 通用（两模式）；
@@ -217,6 +221,9 @@ rpc.register("initialize", (params) => {
     audit.configure(pack0.serverUrl, pack0.token, pack0.userId);
     // T1.3：会话 JSONL 根目录（桌面端下发；缺省系统临时目录）
     sessions = new SessionJsonlStore(pack.sessionsDir || SessionJsonlStore.defaultRoot());
+    // T5.1：定时任务调度器（数据目录：任务/记录；启动后按调度触发）
+    scheduler = new AutomationScheduler(engine, sessions, pack.sessionsDir || SessionJsonlStore.defaultRoot());
+    scheduler.start();
     void bootstrapEngineOnce();
     return {
         protocolVersion: "1.0",
@@ -246,6 +253,11 @@ rpc.register("initialize", (params) => {
                 "office.exportDocx",
                 "office.exportXlsx",
                 "office.readXlsx",
+                "schedule.list",
+                "schedule.create",
+                "schedule.delete",
+                "schedule.run",
+                "schedule.records",
             ],
             engineReady: false,
         },
@@ -551,6 +563,59 @@ rpc.register("office.readXlsx", async (params) => {
     return officeTools.readXlsx(p.path);
 });
 
+// ── 定时任务（T5.1） ─────────────────────────────────────────────────
+
+rpc.register("schedule.list", () => {
+    requireInitialized();
+    return { tasks: scheduler!.listTasks(), records: scheduler!.listRecords() };
+});
+
+rpc.register("schedule.create", (params) => {
+    requireInitialized();
+    const p = params as {
+        name?: string;
+        instructions?: string;
+        schedule?: { kind?: string; at?: number; hour?: number; minute?: number; daysOfWeek?: number[]; timezone?: string };
+        mode?: string;
+    };
+    if (!p?.instructions || !p?.schedule?.kind || !p?.schedule?.timezone)
+        throw new RpcError(RpcErrorCodes.InvalidParams, "schedule.create 需要 instructions、schedule.kind 与 schedule.timezone");
+    assertAutomationTimezone(p.schedule.timezone);
+    const task = scheduler!.createTask({
+        name: p.name ?? "",
+        instructions: p.instructions,
+        schedule: {
+            kind: p.schedule.kind as "once" | "daily" | "weekly",
+            at: typeof p.schedule.at === "number" ? p.schedule.at : undefined,
+            hour: typeof p.schedule.hour === "number" ? p.schedule.hour : undefined,
+            minute: typeof p.schedule.minute === "number" ? p.schedule.minute : undefined,
+            daysOfWeek: Array.isArray(p.schedule.daysOfWeek) ? p.schedule.daysOfWeek.map(Number) : undefined,
+            timezone: p.schedule.timezone,
+        },
+        mode: normalizeMode(p.mode),
+    });
+    return { task };
+});
+
+rpc.register("schedule.delete", (params) => {
+    requireInitialized();
+    return { deleted: scheduler!.deleteTask(str(params, "id")) };
+});
+
+rpc.register("schedule.run", async (params) => {
+    requireInitialized();
+    const id = str(params, "id");
+    const task = scheduler!.listTasks().find((t) => t.id === id);
+    if (!task) throw new RpcError(RpcErrorCodes.InvalidParams, `任务不存在：${id}`);
+    return { record: await scheduler!.executeTask(task) };
+});
+
+rpc.register("schedule.records", (params) => {
+    requireInitialized();
+    const id = (params as { id?: string } | undefined)?.id;
+    return { records: scheduler!.listRecords(id && id !== "null" ? id : undefined) };
+});
+
 // ── Agent 引擎通道 ─────────────────────────────────────────────────────
 
 /**
@@ -662,6 +727,7 @@ process.on("disconnect", () => {
     logStderr("stdin 断开，停机流程开始");
     for (const root of [...watchStates.keys()]) stopWatch(root);
     approvals.rejectAll("sidecar 停机");
+    scheduler?.dispose();
     void audit.shutdown().finally(() => process.exit(0));
 });
 
