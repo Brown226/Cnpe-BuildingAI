@@ -12,11 +12,13 @@ import {
   CommandList,
   CommandShortcut,
 } from "@buildingai/ui/components/ui/command";
-import { FolderOpen, FolderPlus, MessageSquarePlus, Repeat2 } from "lucide-react";
+import { FolderOpen, FolderPlus, MessageSquarePlus, Repeat2, Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 import { useDesktop } from "./desktop-provider";
+import { desktopApi } from "@/services/desktop/desktop-api";
 import { installGlobalKeymap, registerShortcut } from "@/services/desktop/keymap";
 import { searchThreads } from "@/services/desktop/thread-store";
 
@@ -60,6 +62,34 @@ export function CommandPalette() {
   const close = () => {
     setOpen(false);
     setQuery("");
+  };
+
+  /** T4.12 桌面会话导出：聚合全部本地会话（meta+messages）→ JSON 下载 */
+  const exportSessions = async () => {
+    try {
+      const { sessions } = await desktopApi.sessionList();
+      const exported = {
+        exportedAt: new Date().toISOString(),
+        sessions: [] as Array<unknown>,
+      };
+      for (const s of sessions) {
+        const detail = await desktopApi.sessionGet(s.id);
+        exported.sessions.push({ meta: detail.meta, messages: detail.messages });
+      }
+      const blob = new Blob([JSON.stringify(exported, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `buildingai-sessions-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`已导出 ${sessions.length} 个会话`);
+      close();
+    } catch (err) {
+      toast.error(`导出失败：${String(err)}`);
+    }
   };
 
   const results = searchThreads(query, { mode: activeMode }).slice(0, 10);
@@ -157,6 +187,10 @@ export function CommandPalette() {
           >
             <FolderOpen className="size-3.5" />
             打开文件面板
+          </CommandItem>
+          <CommandItem onSelect={() => void exportSessions()}>
+            <Download className="size-3.5" />
+            导出会话数据（JSON）
           </CommandItem>
         </CommandGroup>
       </CommandList>
