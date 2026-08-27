@@ -43,7 +43,9 @@ const engine = new PiEngine();
 /** T1.3 会话 JSONL 存储：initialize 时按 sessionsDir（或默认目录）初始化 */
 let sessions: SessionJsonlStore | null = null;
 
-/** 平台自有工具：策略管控下的文件/命令能力，以受控形式交给 Agent 引擎 */
+/** 平台自有工具：策略管控下的文件/命令能力，以受控形式交给 Agent 引擎。
+ *  T2.4 工具按模式隔离：list_dir/read_file 通用（两模式）；
+ *  write_file/execute 仅 Code；办公工具仅 Work。 */
 const platformTools: PlatformTool[] = [
     {
         name: "list_dir",
@@ -92,6 +94,7 @@ const platformTools: PlatformTool[] = [
         name: "write_file",
         description:
             "在工作区内写文本文件（覆盖或新建）。平衡模式下自动放行；严格模式会弹出审批卡片由用户确认。",
+        modes: ["code"],
         parameters: {
             type: "object",
             properties: {
@@ -109,6 +112,7 @@ const platformTools: PlatformTool[] = [
         name: "execute",
         description:
             "在工作区目录内运行一条 shell 命令并返回输出。危险命令被黑名单硬拦截；白名单外命令在平衡模式下需用户审批。",
+        modes: ["code"],
         parameters: {
             type: "object",
             properties: {
@@ -136,6 +140,7 @@ const platformTools: PlatformTool[] = [
         name: "parse_document",
         description:
             "读取并解析工作区中的文档为纯文本（支持 .docx/.xlsx/.csv/.txt/.md）。用于回答关于文档内容的问题或基于现有文件加工。",
+        modes: ["work"],
         parameters: {
             type: "object",
             properties: {
@@ -152,6 +157,7 @@ const platformTools: PlatformTool[] = [
         name: "export_docx",
         description:
             "把 Markdown 文本导出为工作区内的 Word (.docx) 报告。支持标题(#)、加粗(**)、无序列表(-)；生成后告知用户保存位置。",
+        modes: ["work"],
         parameters: {
             type: "object",
             properties: {
@@ -172,6 +178,7 @@ const platformTools: PlatformTool[] = [
         name: "export_xlsx",
         description:
             "把二维表格数据写入工作区内的 Excel (.xlsx)。rows 为数组套数组的行集合，首行为表头；适合清单、统计表等产出。",
+        modes: ["work"],
         parameters: {
             type: "object",
             properties: {

@@ -391,11 +391,15 @@ export class PiEngine implements AgentEngine {
         });
         await resourceLoader.reload();
 
+        // T2.4 工具按模式隔离：仅注入该模式允许的工具（缺省 modes 视为全模式）
+        const modeTools = this.tools.filter(
+            (t) => !t.modes || t.modes.includes(mode),
+        );
         const { session } = await createAgentSession({
             model: this.buildModelObject(modelId),
             modelRuntime: this.runtime,
             resourceLoader,
-            customTools: toPiTools(this.tools),
+            customTools: toPiTools(modeTools),
             noTools: "builtin",
             sessionManager: SessionManager.inMemory(),
             cwd,
