@@ -13,7 +13,8 @@ export interface AuditEvent {
         | "policy.blocked"
         | "approval.requested"
         | "approval.granted"
-        | "approval.denied";
+        | "approval.denied"
+        | "session.usage";
     action: string;
     rule?: string;
     reason?: string;

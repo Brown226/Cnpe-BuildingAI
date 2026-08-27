@@ -53,4 +53,27 @@ export class DesktopAuditConsoleController {
             to: to ? new Date(to) : undefined,
         });
     }
+
+    /** 用量聚合（T4.6 计费/账单数据源）：/consoleapi/desktop-audit/usage?from=&to=&userId= */
+    @Get("usage")
+    async usage(
+        @Query("from") from?: string,
+        @Query("to") to?: string,
+        @Query("userId") userId?: string,
+    ): Promise<{
+        items: Array<{
+            userId: string;
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadTokens: number;
+            events: number;
+        }>;
+        total: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
+    }> {
+        return this.auditService.usageSummary({
+            from: from ? new Date(from) : undefined,
+            to: to ? new Date(to) : undefined,
+            userId: userId || undefined,
+        });
+    }
 }

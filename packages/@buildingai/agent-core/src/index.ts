@@ -727,7 +727,19 @@ async function pumpSessionEvents(sessionId: string, text: string, mode?: string)
         if (event.type === "text_delta") assistantText += event.delta;
         else if (event.type === "tool_call_end")
             toolSummary += `\n[工具 ${event.name ?? "tool"} ${event.ok ? "完成" : "失败"} · ${event.durationMs ?? 0}ms]`;
-        else if (event.type === "done" || event.type === "error") {
+        else if (event.type === "usage") {
+            // T4.6 用量计费：token 计量随审计通道上报服务端（按用户聚合）
+            audit.record({
+                type: "session.usage",
+                action: "token.usage",
+                detail: {
+                    inputTokens: event.inputTokens,
+                    outputTokens: event.outputTokens,
+                    cacheReadTokens: event.cacheReadTokens ?? 0,
+                    cacheWriteTokens: event.cacheWriteTokens ?? 0,
+                },
+            });
+        } else if (event.type === "done" || event.type === "error") {
             const full = assistantText + (toolSummary.trim() ? `\n${toolSummary.trim()}` : "");
             if (full.trim())
                 sessions?.appendMessage(sessionId, { role: "assistant", text: full, ts: Date.now() });

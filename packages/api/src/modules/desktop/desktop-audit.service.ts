@@ -22,6 +22,7 @@ const ALLOWED_TYPES = new Set([
     "approval.requested",
     "approval.granted",
     "approval.denied",
+    "session.usage",
 ]);
 
 @Injectable()
@@ -92,6 +93,53 @@ export class DesktopAuditService {
             .take(pageSize)
             .getMany();
 
+        return { items, total };
+    }
+
+    /** T4.6 用量聚合：按用户汇总 token（时间范围 + 可选用户过滤），计费/账单数据源 */
+    async usageSummary(params: {
+        from?: Date;
+        to?: Date;
+        userId?: string;
+    }): Promise<{
+        items: Array<{ userId: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; events: number }>;
+        total: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
+    }> {
+        const qb = this.repository
+            .createQueryBuilder("event")
+            .select("event.userId", "userId")
+            .addSelect('SUM((event.detail->>\'inputTokens\')::int)', "inputTokens")
+            .addSelect('SUM((event.detail->>\'outputTokens\')::int)', "outputTokens")
+            .addSelect("COALESCE(SUM((event.detail->>'cacheReadTokens')::int), 0)", "cacheReadTokens")
+            .addSelect("COUNT(*)", "events")
+            .where("event.type = :type", { type: "session.usage" });
+        if (params.from) qb.andWhere("event.occurredAt >= :from", { from: params.from });
+        if (params.to) qb.andWhere("event.occurredAt <= :to", { to: params.to });
+        if (params.userId) qb.andWhere("event.userId = :userId", { userId: params.userId });
+        qb.groupBy("event.userId").orderBy("inputTokens", "DESC");
+
+        const rows = (await qb.getRawMany()) as Array<{
+            userId: string | null;
+            inputTokens: string;
+            outputTokens: string;
+            cacheReadTokens: string;
+            events: string;
+        }>;
+        const items = rows.map((r) => ({
+            userId: r.userId ?? "unknown",
+            inputTokens: Number(r.inputTokens) || 0,
+            outputTokens: Number(r.outputTokens) || 0,
+            cacheReadTokens: Number(r.cacheReadTokens) || 0,
+            events: Number(r.events) || 0,
+        }));
+        const total = items.reduce(
+            (acc, it) => ({
+                inputTokens: acc.inputTokens + it.inputTokens,
+                outputTokens: acc.outputTokens + it.outputTokens,
+                cacheReadTokens: acc.cacheReadTokens + it.cacheReadTokens,
+            }),
+            { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+        );
         return { items, total };
     }
 }
