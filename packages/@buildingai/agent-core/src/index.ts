@@ -492,9 +492,14 @@ rpc.register("exec.run", (params) => {
 // ── 审批响应通知 ───────────────────────────────────────────────────────
 
 rpc.onNotification("approval/respond", (raw) => {
-    const p = raw as { requestId?: string; approved?: boolean; reason?: string };
+    const p = raw as {
+        requestId?: string;
+        approved?: boolean;
+        reason?: string;
+        remember?: boolean;
+    };
     if (!p?.requestId) return;
-    approvals.respond(p.requestId, Boolean(p.approved), p.reason);
+    approvals.respond(p.requestId, Boolean(p.approved), p.reason, Boolean(p.remember));
 });
 
 // ── 办公文档直通（与 fs.* 同级：供 UI/测试确定性调用；引擎侧另有同名工具） ──

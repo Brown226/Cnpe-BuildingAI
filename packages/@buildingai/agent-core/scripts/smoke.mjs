@@ -142,6 +142,79 @@ async function main() {
         showHidden: false,
     });
 
+    console.log("== 11. 工作区外写入（应被硬拒，T1.5 目录边界）");
+    try {
+        await request("fs.write", { path: path.join(workDir, "outside-write.txt"), content: "越界写入" });
+        console.log("!!! 越权写入成功，测试失败");
+    } catch (e) {
+        console.log("已拒绝 ✓ ->", e.message);
+    }
+
+    console.log("== 12. always 记忆（remember=true 后同路径写入自动放行，T1.4）");
+    {
+        const p12a = request("fs.write", { path: path.join(workDir, "ws", "remember.txt"), content: "第一次" });
+        await new Promise((r) => setTimeout(r, 150));
+        const req12 = notificationBuffer.findLast(
+            (n) => n.method === "approval/request" && String(n.params.target).includes("remember.txt"),
+        );
+        if (!req12) {
+            console.log("!!! 未收到审批通知");
+        } else {
+            notificationBuffer = notificationBuffer.filter((n) => n !== req12);
+            child.stdin.write(`${JSON.stringify({
+                jsonrpc: "2.0",
+                method: "approval/respond",
+                params: { requestId: req12.params.requestId, approved: true, remember: true },
+            })}\n`);
+        }
+        console.log(await p12a);
+        const p12b = request("fs.write", { path: path.join(workDir, "ws", "remember.txt"), content: "第二次（应自动放行）" });
+        await new Promise((r) => setTimeout(r, 250));
+        const reapproval12 = notificationBuffer.some(
+            (n) => n.method === "approval/request" && String(n.params.target).includes("remember.txt"),
+        );
+        console.log(reapproval12 ? "!!! 仍弹审批，remember 未生效" : "自动放行 ✓（未再弹审批）");
+        console.log(await p12b);
+    }
+
+    console.log("== 13. doom-loop（同一操作连续拒绝 3 次后直接拒绝不再弹卡，T1.4）");
+    {
+        for (let i = 1; i <= 3; i++) {
+            const p13 = request("fs.write", { path: path.join(workDir, "ws", "loop.txt"), content: `尝试${i}` });
+            await new Promise((r) => setTimeout(r, 120));
+            const req13 = notificationBuffer.findLast(
+                (n) => n.method === "approval/request" && String(n.params.target).includes("loop.txt"),
+            );
+            if (!req13) {
+                console.log(`!!! 第 ${i} 次未弹审批`);
+            } else {
+                notificationBuffer = notificationBuffer.filter((n) => n !== req13);
+                child.stdin.write(`${JSON.stringify({
+                    jsonrpc: "2.0",
+                    method: "approval/respond",
+                    params: { requestId: req13.params.requestId, approved: false },
+                })}\n`);
+            }
+            try {
+                await p13;
+                console.log(`第 ${i} 次拒绝 ✓`);
+            } catch (e) {
+                console.log(`第 ${i} 次拒绝 ✓ ->`, e.message);
+            }
+        }
+        try {
+            const r4 = await request("fs.write", { path: path.join(workDir, "ws", "loop.txt"), content: "尝试4" });
+            console.log("!!! 第 4 次竟返回结果:", JSON.stringify(r4));
+        } catch (e) {
+            console.log("第 4 次直接拒绝 ✓ ->", e.message);
+        }
+        await new Promise((r) => setTimeout(r, 150));
+        const reapproval13 = notificationBuffer.some(
+            (n) => n.method === "approval/request" && String(n.params.target).includes("loop.txt"),
+        );
+        console.log(reapproval13 ? "!!! 仍弹卡，doom-loop 未生效" : "未再弹卡 ✓");
+    }
+
     console.log("\n全部冒烟用例执行完毕。工作目录:", workDir);
 }
 
