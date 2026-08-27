@@ -10,7 +10,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { validate as isUUID } from "uuid";
 
-import { isDesktop } from "@/services/desktop/desktop-api";
+import { desktopApi, isDesktop } from "@/services/desktop/desktop-api";
 import { getDesktopAgentTransport } from "@/services/desktop/desktop-agent-transport";
 import { getLocalThread, toUIMessages } from "@/services/desktop/thread-store";
 import { useDesktop } from "@/components/desktop/desktop-provider";
@@ -93,7 +93,7 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
   const location = useLocation();
   const token = useAuthStore((state) => state.auth.token);
   const queryClient = useQueryClient();
-  const { selectedWorkspace } = useDesktop();
+  const { selectedWorkspace, activeMode } = useDesktop();
 
   /**
    * Tracks pending timeouts scheduled by stop/hydration logic so they can be
@@ -499,17 +499,43 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
 
   /**
    * 桌面本地会话历史回放：进入 /chat/:id 且服务端无该会话时，
-   * 从本地轻量存储恢复消息流，并重新绑定 transport 线程上下文。
+   * 优先从 sidecar JSONL（T1.3 session.get）恢复正文，失败回退 localStorage 轻量流，
+   * 并重新绑定 transport 线程上下文。
    */
   useEffect(() => {
     if (!isDesktop() || !currentThreadId || messages.length > 0) return;
     const thread = getLocalThread(currentThreadId);
-    if (!thread || thread.messages.length === 0) return;
-    getDesktopAgentTransport().setThreadContext({
-      threadId: currentThreadId,
-      workspaceId: thread.workspaceId,
-    });
-    setChatMessages(toUIMessages(thread));
+    const fallback = (mode: "code" | "work") => {
+      if (!thread || thread.messages.length === 0) return;
+      getDesktopAgentTransport().setThreadContext({
+        threadId: currentThreadId,
+        workspaceId: thread.workspaceId,
+        mode: thread.mode ?? mode,
+      });
+      setChatMessages(toUIMessages(thread));
+    };
+    if (!thread) return;
+    void desktopApi
+      .sessionGet(currentThreadId)
+      .then((r) => {
+        if (r.messages.length === 0) {
+          fallback(r.meta?.mode ?? "code");
+          return;
+        }
+        getDesktopAgentTransport().setThreadContext({
+          threadId: currentThreadId,
+          workspaceId: thread.workspaceId,
+          mode: r.meta?.mode ?? thread.mode ?? "code",
+        });
+        setChatMessages(
+          r.messages.map((m, i) => ({
+            id: `${currentThreadId}-${i}`,
+            role: m.role,
+            parts: [{ type: "text" as const, text: m.text }],
+          })),
+        );
+      })
+      .catch(() => fallback(thread.mode ?? "code"));
   }, [currentThreadId, messages.length, setChatMessages]);
 
   useEffect(() => {
@@ -583,6 +609,7 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
         getDesktopAgentTransport().setThreadContext({
           threadId: localThreadId,
           workspaceId: selectedWorkspace?.id ?? null,
+          mode: activeMode,
         });
       }
 

@@ -39,6 +39,10 @@ interface DesktopContextValue {
     selectWorkspace: (entry: WorkspaceEntry) => Promise<void>;
     /** 移除工作区（连带 sidecar 白名单） */
     removeWorkspace: (entry: WorkspaceEntry) => Promise<void>;
+    /** 当前工作台模式（T1.1 双模式：code | work），localStorage 持久化 */
+    activeMode: "code" | "work";
+    /** 切换模式（新建会话进入该模式；已有会话按模式过滤显示） */
+    setMode: (mode: "code" | "work") => void;
 }
 
 const DesktopContext = createContext<DesktopContextValue>({
@@ -52,12 +56,26 @@ const DesktopContext = createContext<DesktopContextValue>({
     addWorkspaceByPicker: async () => undefined,
     selectWorkspace: async () => undefined,
     removeWorkspace: async () => undefined,
+    activeMode: "code",
+    setMode: () => undefined,
 });
+
+const MODE_STORAGE_KEY = "huashu.desktop.mode.v1";
+
+function loadMode(): "code" | "work" {
+    if (typeof window === "undefined") return "code";
+    try {
+        return window.localStorage.getItem(MODE_STORAGE_KEY) === "work" ? "work" : "code";
+    } catch {
+        return "code";
+    }
+}
 
 /**
  * 桌面端全局 Provider：负责拉起 sidecar、完成 initialize 握手、
  * 订阅引擎事件并把审批请求汇入卡片队列；同时持有工作区记忆列表
- * （复刻 Kun"路径+记忆列表"模型，持久化在 localStorage）。
+ * （复刻 Kun"路径+记忆列表"模型，持久化在 localStorage）与
+ * 当前工作台模式（T1.1 双模式：code | work）。
  * 非桌面（浏览器）环境下为空实现，不影响网页版。
  */
 export function DesktopProvider({ children }: { children: ReactNode }) {
@@ -71,10 +89,20 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
     const [refreshWorkspacesSignal, setRefreshWorkspacesSignal] = useState(0);
     const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [activeMode, setActiveMode] = useState<"code" | "work">(() => loadMode());
     const selectedWorkspace = useMemo(
         () => workspaces.find((w) => w.id === selectedId) ?? null,
         [workspaces, selectedId],
     );
+
+    const setMode = useCallback((mode: "code" | "work") => {
+        setActiveMode(mode);
+        try {
+            window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+        } catch {
+            /* 忽略存储失败 */
+        }
+    }, []);
 
     const respond = useCallback((requestId: string, approved: boolean, reason?: string) => {
         void desktopApi.respondApproval(requestId, approved, reason);
@@ -239,6 +267,8 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             addWorkspaceByPicker,
             selectWorkspace,
             removeWorkspace,
+            activeMode,
+            setMode,
         }),
         [
             desktop,
@@ -251,6 +281,8 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             addWorkspaceByPicker,
             selectWorkspace,
             removeWorkspace,
+            activeMode,
+            setMode,
         ],
     );
 

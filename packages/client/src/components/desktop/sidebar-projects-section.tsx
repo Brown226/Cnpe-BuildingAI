@@ -77,6 +77,7 @@ export function DesktopProjectsSection() {
     selectWorkspace,
     addWorkspaceByPicker,
     removeWorkspace,
+    activeMode,
   } = useDesktop();
   const navigate = useNavigate();
   const [version, setVersion] = useState(0);
@@ -148,10 +149,10 @@ export function DesktopProjectsSection() {
   };
 
   const archiveAllIn = (w: WorkspaceEntry) => {
-    const count = listThreadsByWorkspace(w.id).length;
+    const count = listThreadsByWorkspace(w.id, activeMode).length;
     if (count === 0) return;
     if (window.confirm(`归档「${w.name}」中的所有会话？\n\n将归档 ${count} 个会话。归档后将从列表隐藏。`)) {
-      archiveWorkspaceThreads(w.id);
+      archiveWorkspaceThreads(w.id, activeMode);
       bump();
     }
   };
@@ -200,7 +201,7 @@ export function DesktopProjectsSection() {
             const active = selectedWorkspace?.id === w.id;
             const expanded = expandedIds.includes(w.id) || active;
             const folders = listFolders(w.id);
-            const rootThreads = listThreadsByWorkspace(w.id).filter((t) => !t.folderId);
+            const rootThreads = listThreadsByWorkspace(w.id, activeMode).filter((t) => !t.folderId);
             return (
               <SidebarMenuItem key={w.id}>
                 <SidebarMenuButton
@@ -237,7 +238,7 @@ export function DesktopProjectsSection() {
                   <SidebarMenuSub className="mr-0 pr-0">
                     {/* 虚拟文件夹 */}
                     {folders.map((f) => {
-                      const folderThreads = listThreadsByWorkspace(w.id).filter(
+                      const folderThreads = listThreadsByWorkspace(w.id, activeMode).filter(
                         (t) => t.folderId === f.id,
                       );
                       return (
@@ -359,11 +360,11 @@ export function DesktopProjectsSection() {
               <MenuRow
                 icon={<Archive className="size-3.5" />}
                 label={`归档当前项目中的所有会话${
-                  listThreadsByWorkspace(menu.workspace.id).length
-                    ? `（${listThreadsByWorkspace(menu.workspace.id).length}）`
+                  listThreadsByWorkspace(menu.workspace.id, activeMode).length
+                    ? `（${listThreadsByWorkspace(menu.workspace.id, activeMode).length}）`
                     : ""
                 }`}
-                disabled={listThreadsByWorkspace(menu.workspace.id).length === 0}
+                disabled={listThreadsByWorkspace(menu.workspace.id, activeMode).length === 0}
                 onClick={() => {
                   setMenu(null);
                   archiveAllIn(menu.workspace);

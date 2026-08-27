@@ -151,4 +151,35 @@ export const desktopApi = {
     ): Promise<{ text: string; truncated: boolean; kind: string }> {
         return rpc("office.parse", { path });
     },
+
+    /** 本地会话元数据列表（T1.3 JSONL；按 updatedAt 倒序） */
+    sessionList(): Promise<{
+        sessions: Array<{
+            id: string;
+            mode: "code" | "work";
+            cwd: string;
+            title: string;
+            createdAt: number;
+            updatedAt: number;
+        }>;
+    }> {
+        return rpc("session.list");
+    },
+
+    /** 本地会话详情：元数据 + 对话文本流（回放用） */
+    sessionGet(
+        sessionId: string,
+    ): Promise<{
+        meta: {
+            id: string;
+            mode: "code" | "work";
+            cwd: string;
+            title: string;
+            createdAt: number;
+            updatedAt: number;
+        } | null;
+        messages: Array<{ role: "user" | "assistant"; text: string; ts: number }>;
+    }> {
+        return rpc("session.get", { sessionId });
+    },
 };

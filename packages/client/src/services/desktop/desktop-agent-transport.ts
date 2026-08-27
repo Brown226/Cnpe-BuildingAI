@@ -28,17 +28,22 @@ interface EngineEventDto {
 interface ThreadContext {
     threadId: string;
     workspaceId: string | null;
+    /** 会话模式（T1.1 双模式）：code | work；首次建会话时生效 */
+    mode?: "code" | "work";
 }
 
 /** 每个聊天线程一个本地会话；线程 id → Pi sessionId */
 const sessionByChat = new Map<string, Promise<string>>();
+/** 线程 id → 首次建会话时的模式（与 Pi session 固定绑定） */
+const modeByChat = new Map<string, "code" | "work">();
 
-function ensureSession(chatId: string): Promise<string> {
+function ensureSession(chatId: string, mode: "code" | "work"): Promise<string> {
     let p = sessionByChat.get(chatId);
     if (!p) {
-        p = rpc<{ sessionId: string }>("session.create").then((r) => r.sessionId);
+        p = rpc<{ sessionId: string }>("session.create", { mode }).then((r) => r.sessionId);
         p.catch(() => sessionByChat.delete(chatId));
         sessionByChat.set(chatId, p);
+        modeByChat.set(chatId, mode);
     }
     return p;
 }
@@ -128,7 +133,8 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
         try {
             let sid: string;
             try {
-                sid = await ensureSession(chatId);
+                const mode = this.threadContext?.mode ?? modeByChat.get(chatId) ?? "code";
+                sid = await ensureSession(chatId, mode);
             } catch (err) {
                 controller.enqueue({
                     type: "error",
@@ -229,6 +235,23 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                         });
                         break;
                     }
+                    case "usage": {
+                        // T1.2 缓存可观测 + 计费用量采集预留：
+                        // 引擎侧已 logStderr 命中率；前端仅透传记录
+                        const u = ev as unknown as {
+                            inputTokens?: number;
+                            outputTokens?: number;
+                            cacheReadTokens?: number;
+                            cacheWriteTokens?: number;
+                        };
+                        const total = u.inputTokens ?? 0;
+                        const hit =
+                            total > 0 ? Math.round(((u.cacheReadTokens ?? 0) / total) * 100) : 0;
+                        console.debug(
+                            `[desktop] usage in=${u.inputTokens} out=${u.outputTokens} cacheRead=${u.cacheReadTokens} hit≈${hit}%`,
+                        );
+                        break;
+                    }
                     case "error": {
                         errorText = ev.message;
                         break;
@@ -258,6 +281,7 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                                 this.threadContext.workspaceId,
                                 msgs,
                                 text,
+                                this.threadContext.mode ?? "code",
                             );
                         }
                         close();
@@ -278,7 +302,8 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                 { once: true },
             );
 
-            await rpc("session.send", { sessionId: sid, text });
+            const mode = this.threadContext?.mode ?? modeByChat.get(chatId) ?? "code";
+            await rpc("session.send", { sessionId: sid, text, mode });
             // aborted 场景下 done 可能仍随后到达，但流已通过 abort 块关闭
             if (aborted) {
                 /* 等待引擎侧 done/abort 收尾；超时兜底 */

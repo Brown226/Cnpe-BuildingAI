@@ -20,6 +20,8 @@ export interface LocalThread {
     archived?: boolean;
     /** 所属虚拟文件夹（侧栏组织） */
     folderId?: string | null;
+    /** 会话模式（T1.1 双模式）：code | work；缺省 code（旧数据兼容） */
+    mode?: "code" | "work";
 }
 
 export interface WorkspaceFolder {
@@ -73,12 +75,13 @@ export function getLocalThread(id: string): LocalThread | undefined {
     return loadAll()[id];
 }
 
-/** 追加消息；titleSeed 首次用于生成标题 */
+/** 追加消息；titleSeed 首次用于生成标题；mode 首次创建时记录（之后以已有为准） */
 export function appendThreadMessages(
     threadId: string,
     workspaceId: string | null,
     messages: LocalThreadMessage[],
     titleSeed?: string,
+    mode?: "code" | "work",
 ): void {
     if (!threadId || messages.length === 0) return;
     const store = loadAll();
@@ -95,6 +98,7 @@ export function appendThreadMessages(
         updatedAt: Date.now(),
         archived: existing?.archived ?? false,
         folderId: existing?.folderId ?? null,
+        mode: existing?.mode ?? mode ?? "code",
     };
     const ids = Object.keys(store);
     if (ids.length > MAX_THREADS) {
@@ -106,9 +110,18 @@ export function appendThreadMessages(
     saveAll(store);
 }
 
-export function listThreadsByWorkspace(workspaceId: string): LocalThread[] {
+/** 按工作区列会话；mode 缺省不过滤（兼容旧调用与统计） */
+export function listThreadsByWorkspace(
+    workspaceId: string,
+    mode?: "code" | "work",
+): LocalThread[] {
     return Object.values(loadAll())
-        .filter((t) => t.workspaceId === workspaceId && t.archived !== true)
+        .filter(
+            (t) =>
+                t.workspaceId === workspaceId &&
+                t.archived !== true &&
+                (mode === undefined || (t.mode ?? "code") === mode),
+        )
         .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -136,11 +149,14 @@ export function archiveThread(id: string): void {
     }
 }
 
-/** Kun「归档当前项目中的所有会话」：返回将归档的数量并执行 */
-export function archiveWorkspaceThreads(workspaceId: string): number {
+/** Kun「归档当前项目中的所有会话」：按模式过滤；返回将归档的数量并执行 */
+export function archiveWorkspaceThreads(workspaceId: string, mode?: "code" | "work"): number {
     const store = loadAll();
     const targets = Object.values(store).filter(
-        (t) => t.workspaceId === workspaceId && t.archived !== true,
+        (t) =>
+            t.workspaceId === workspaceId &&
+            t.archived !== true &&
+            (mode === undefined || (t.mode ?? "code") === mode),
     );
     for (const t of targets) t.archived = true;
     if (targets.length > 0) saveAll(store);
