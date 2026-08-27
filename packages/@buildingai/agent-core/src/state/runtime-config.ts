@@ -15,6 +15,8 @@ export interface ConfigPack {
     defaultModel?: { provider?: string; modelId: string };
     /** 会话 JSONL 落盘根目录（T1.3；缺省为系统临时目录下的 huashu-sessions） */
     sessionsDir?: string;
+    /** 出网白名单（T4.8）；空数组=不限制；配置后 agent 仅能访问白名单域名 */
+    egressAllowlist?: string[];
 }
 
 class RuntimeConfigStore {

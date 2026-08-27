@@ -105,6 +105,7 @@ export const desktopApi = {
         userId?: string;
         policy?: { mode: string };
         workspaces?: string[];
+        egressAllowlist?: string[];
     }): Promise<{ protocolVersion: string }> {
         return rpc("initialize", pack);
     },

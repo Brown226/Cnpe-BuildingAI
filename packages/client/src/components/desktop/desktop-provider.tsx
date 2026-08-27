@@ -260,6 +260,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                 // 接口暂不可用（旧版本后端/离线）时回退默认
                 let policyMode = "balanced";
                 let fetchedPolicyKeys: Record<string, boolean> | null = null;
+                let fetchedEgressAllowlist: string[] = [];
                 try {
                     const res = await fetch(`${serverBase}/api/desktop/config`, {
                         headers: { Authorization: token ? `Bearer ${token}` : "" },
@@ -268,6 +269,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                         const cfg = (await res.json()) as {
                             defaultPolicyMode?: string;
                             policyKeys?: Record<string, boolean>;
+                            egressAllowlist?: string[];
                         };
                         if (
                             cfg?.defaultPolicyMode &&
@@ -277,6 +279,9 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                         }
                         if (cfg?.policyKeys && typeof cfg.policyKeys === "object") {
                             fetchedPolicyKeys = cfg.policyKeys;
+                        }
+                        if (Array.isArray(cfg?.egressAllowlist)) {
+                            fetchedEgressAllowlist = cfg.egressAllowlist;
                         }
                     }
                 } catch {
@@ -293,6 +298,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                     userId,
                     policy: { mode: policyMode },
                     workspaces: persisted.items.map((w) => w.path),
+                    egressAllowlist: fetchedEgressAllowlist,
                 });
                 if (disposed) return;
                 setReady(true);

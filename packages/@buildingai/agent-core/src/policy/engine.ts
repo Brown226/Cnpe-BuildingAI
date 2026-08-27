@@ -30,8 +30,43 @@ export class PolicyEngine {
     private ceiling: PermissionMode = DEFAULT_MODE;
     private blacklistRules: CompiledRule[] = compile(DEFAULT_COMMAND_BLACKLIST);
     private whitelistRules: CompiledRule[] = compile(DEFAULT_COMMAND_WHITELIST);
+    /** T4.8 出网白名单（域名，支持 *.corp.com 通配；空=不限制） */
+    private egressAllowlist: string[] = [];
 
     constructor(private readonly workspaces: WorkspaceStore) {}
+
+    /** T4.8 设置出网白名单（initialize 下发） */
+    setEgressAllowlist(list: string[]): void {
+        this.egressAllowlist = (list ?? []).map((x) => x.trim().toLowerCase()).filter(Boolean);
+    }
+
+    /** T4.8 校验目标 URL 是否在白名单内（未配置=放行） */
+    decideEgress(rawUrl: string): Decision {
+        if (this.egressAllowlist.length === 0) {
+            return { action: "allow", rule: "egress_unrestricted" };
+        }
+        let host: string;
+        try {
+            host = new URL(rawUrl).hostname.toLowerCase();
+        } catch {
+            return {
+                action: "deny",
+                rule: "egress_whitelist",
+                reason: `出网白名单无法解析目标地址：${rawUrl}`,
+            };
+        }
+        const allowed = this.egressAllowlist.some((pattern) => {
+            const p = pattern.replace(/^\*\./, "");
+            return host === p || host.endsWith(`.${p}`);
+        });
+        return allowed
+            ? { action: "allow", rule: "egress_whitelist" }
+            : {
+                  action: "deny",
+                  rule: "egress_whitelist",
+                  reason: `出网白名单拒绝访问：${host}`,
+              };
+    }
 
     configure(config?: Partial<PolicyConfig>): void {
         if (!config) return;

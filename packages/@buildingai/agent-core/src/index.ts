@@ -219,8 +219,11 @@ const platformTools: PlatformTool[] = [
             required: ["url"],
         },
         execute: async (args) => {
-            const r = await browser.request("navigate", String(args.url ?? ""));
-            return { ok: true, summary: `已导航到 ${String(args.url ?? "")}`, data: { result: r } };
+            const url = String(args.url ?? "");
+            // T4.8 出网白名单校验
+            assertAllowed(policy.decideEgress(url), RpcErrorCodes.PolicyDenied);
+            const r = await browser.request("navigate", url);
+            return { ok: true, summary: `已导航到 ${url}`, data: { result: r } };
         },
     },
     {
@@ -258,6 +261,7 @@ rpc.register("initialize", (params) => {
     runtimeConfig.set(pack as ConfigPack);
     if (pack.workspaces) workspaces.setAll(pack.workspaces);
     policy.configure(pack.policy);
+    policy.setEgressAllowlist(pack.egressAllowlist ?? []);
     const pack0 = runtimeConfig.require()!;
     audit.configure(pack0.serverUrl, pack0.token, pack0.userId);
     // T1.3：会话 JSONL 根目录（桌面端下发；缺省系统临时目录）

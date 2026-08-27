@@ -45,18 +45,37 @@ export class DesktopConfigController {
         private readonly dictRepository: Repository<Dict>,
     ) {}
 
-    /** 登录后拉取配置包：默认权限模式 + 策略键表 */
+    /** 登录后拉取配置包：默认权限模式 + 策略键表 + 出网白名单 */
     @Get("config")
     async config(@Req() req: unknown): Promise<{
         defaultPolicyMode: string;
         policyKeys: Record<DesktopPolicyKey, boolean>;
+        egressAllowlist: string[];
         revision: number;
     }> {
         const deptId = (req as { user?: { departmentId?: string; deptId?: string } }).user?.departmentId
             ?? (req as { user?: { deptId?: string } }).user?.deptId;
-        const policyKeys = await this.loadPolicyKeys(deptId);
+        const [policyKeys, egressAllowlist] = await Promise.all([
+            this.loadPolicyKeys(deptId),
+            this.loadEgressAllowlist(),
+        ]);
         const globalMode = process.env.DESKTOP_DEFAULT_POLICY_MODE ?? "balanced";
-        return { defaultPolicyMode: globalMode, policyKeys, revision: POLICY_REVISION };
+        return { defaultPolicyMode: globalMode, policyKeys, egressAllowlist, revision: POLICY_REVISION };
+    }
+
+    /** 出网白名单（T4.8）：dict group=desktop_egress，value 为 JSON 数组（域名，支持 *.corp.com 通配）；
+     *  空数组 = 未配置（不限制，向后兼容）；配置后 agent 仅能访问白名单内域名。 */
+    private async loadEgressAllowlist(): Promise<string[]> {
+        try {
+            const row = await this.dictRepository.findOne({
+                where: { group: "desktop_egress", key: "allowlist", isEnabled: true },
+            });
+            if (!row) return [];
+            const parsed: unknown = JSON.parse(row.value);
+            return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+        } catch {
+            return [];
+        }
     }
 
     /** 读取策略键：部门组优先合并到全局组之上 */
