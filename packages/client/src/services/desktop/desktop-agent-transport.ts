@@ -8,7 +8,7 @@
  */
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 
-import { desktopApi } from "./desktop-api";
+import { onAgentEvent, rpc } from "./desktop-api";
 
 /** sidecar 事件形态（对应 agent-core EngineEvent） */
 interface EngineEventDto {
@@ -76,7 +76,7 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
     private async abortOf(chatId: string): Promise<void> {
         try {
             const sid = await sessionByChat.get(chatId)!;
-            await desktopApi.rpc("session.abort", { sessionId: sid });
+            await rpc("session.abort", { sessionId: sid });
         } catch {
             /* 忽略未启动场景 */
         }
@@ -142,7 +142,7 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                 }
             };
 
-            unlisten = await desktopApi.onAgentEvent((frame) => {
+            unlisten = await onAgentEvent((frame) => {
                 if (frame.method !== "engine/event" || finished) return;
                 const params = frame.params ?? {};
                 if (params.sessionId && params.sessionId !== sid) return; // 其他线程事件
@@ -234,12 +234,12 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                 "abort",
                 () => {
                     aborted = true;
-                    void desktopApi.rpc("session.abort", { sessionId: sid }).catch(() => undefined);
+                    void rpc("session.abort", { sessionId: sid }).catch(() => undefined);
                 },
                 { once: true },
             );
 
-            await desktopApi.rpc("session.send", { sessionId: sid, text });
+            await rpc("session.send", { sessionId: sid, text });
             // aborted 场景下 done 可能仍随后到达，但流已通过 abort 块关闭
             if (aborted) {
                 /* 等待引擎侧 done/abort 收尾；超时兜底 */

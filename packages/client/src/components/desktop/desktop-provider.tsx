@@ -111,6 +111,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                 });
             } catch (err) {
                 console.error("[desktop] 启动失败", err);
+                toast.error(`本地引擎启动失败：${String(err)}`);
             }
         };
 

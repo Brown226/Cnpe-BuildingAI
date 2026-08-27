@@ -197,10 +197,32 @@ fn write_line(
 }
 
 fn default_script_path() -> String {
-    // 开发期相对路径：Cnpe-BuildingAI-master/packages/client/src-tauri → ../.. 上两级到 packages
-    ["..", "..", "@buildingai", "agent-core", "dist", "index.js"]
-        .iter()
-        .collect::<std::path::PathBuf>()
-        .to_string_lossy()
-        .to_string()
+    // 多候选探测，摆脱对进程 CWD 的依赖（exe 可能从任意目录启动）：
+    // ① cwd/packages/@buildingai/...（仓库根启动）
+    // ② cwd/../../packages/@buildingai/...（src-tauri 启动，开发期约定）
+    // ③ exe 同级/packages/@buildingai/...（发布期随包布局）
+    let rel_repo: std::path::PathBuf =
+        ["packages", "@buildingai", "agent-core", "dist", "index.js"].iter().collect();
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join(&rel_repo));
+        candidates.push(
+            cwd.join(["..", ".."].iter().collect::<std::path::PathBuf>())
+                .join(&rel_repo),
+        );
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join(&rel_repo));
+        }
+    }
+    for c in &candidates {
+        if c.exists() {
+            return c.to_string_lossy().to_string();
+        }
+    }
+    candidates
+        .first()
+        .map(|c| c.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
