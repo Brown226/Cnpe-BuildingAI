@@ -85,7 +85,10 @@ export function DesktopProjectsSection() {
     addWorkspaceByPicker,
     removeWorkspace,
     activeMode,
+    policyKeys,
   } = useDesktop();
+  /** T4.5 策略：不允许多工作区时隐藏"添加工作区"入口 */
+  const allowAddWorkspace = policyKeys?.allowMultipleWorkspaces !== false;
   const navigate = useNavigate();
   const [version, setVersion] = useState(0);
   const [menu, setMenu] = useState<MenuState>(null);
@@ -187,14 +190,16 @@ export function DesktopProjectsSection() {
     <SidebarGroup>
       <SidebarGroupLabel className="flex items-center justify-between">
         <span>项目</span>
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground rounded p-0.5"
-          title="添加项目文件夹"
-          onClick={() => void addWorkspaceByPicker()}
-        >
-          <FolderPlus className="size-3.5" />
-        </button>
+        {allowAddWorkspace && (
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground rounded p-0.5"
+            title="添加项目文件夹"
+            onClick={() => void addWorkspaceByPicker()}
+          >
+            <FolderPlus className="size-3.5" />
+          </button>
+        )}
       </SidebarGroupLabel>
       <SidebarGroupContent>
         {/* T2.1 全文搜索（标题 + 消息内容，按当前模式过滤） */}

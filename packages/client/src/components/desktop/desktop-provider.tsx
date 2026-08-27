@@ -53,6 +53,8 @@ interface DesktopContextValue {
     /** T1.6 右栏文件面板开合（三栏常驻，可折叠） */
     panelOpen: boolean;
     setPanelOpen: (open: boolean) => void;
+    /** T4.5 服务端下发的桌面策略键（null=未拉取/服务端不可用） */
+    policyKeys: Record<string, boolean> | null;
 }
 
 const DesktopContext = createContext<DesktopContextValue>({
@@ -70,6 +72,7 @@ const DesktopContext = createContext<DesktopContextValue>({
     setMode: () => undefined,
     panelOpen: false,
     setPanelOpen: () => undefined,
+    policyKeys: null,
 });
 
 /** T3.6 处理 agent 的浏览器请求：invoke Tauri → 回填 browser/result */
@@ -132,6 +135,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
     const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [activeMode, setActiveMode] = useState<"code" | "work">(() => loadMode());
+    const [policyKeys, setPolicyKeys] = useState<Record<string, boolean> | null>(null);
     const [panelOpen, setPanelOpen] = useState<boolean>(() => {
         if (typeof window === "undefined") return false;
         try {
@@ -252,25 +256,33 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                 const serverBase =
                     import.meta.env.VITE_APP_API_URL ?? window.location.origin;
 
-                // 配置下发（§4 服务端改造）：默认权限模式按管理端配置；
-                // 接口暂不可用（旧版本后端/离线）时回退 balanced
+                // 配置下发（§4 服务端改造）：默认权限模式 + 策略键表按管理端配置；
+                // 接口暂不可用（旧版本后端/离线）时回退默认
                 let policyMode = "balanced";
+                let fetchedPolicyKeys: Record<string, boolean> | null = null;
                 try {
                     const res = await fetch(`${serverBase}/api/desktop/config`, {
                         headers: { Authorization: token ? `Bearer ${token}` : "" },
                     });
                     if (res.ok) {
-                        const cfg = (await res.json()) as { defaultPolicyMode?: string };
+                        const cfg = (await res.json()) as {
+                            defaultPolicyMode?: string;
+                            policyKeys?: Record<string, boolean>;
+                        };
                         if (
                             cfg?.defaultPolicyMode &&
                             ["strict", "balanced", "trust"].includes(cfg.defaultPolicyMode)
                         ) {
                             policyMode = cfg.defaultPolicyMode;
                         }
+                        if (cfg?.policyKeys && typeof cfg.policyKeys === "object") {
+                            fetchedPolicyKeys = cfg.policyKeys;
+                        }
                     }
                 } catch {
                     /* 网络失败保持默认档 */
                 }
+                setPolicyKeys(fetchedPolicyKeys);
 
                 await startAgentEngine();
                 // 记忆工作区随配置包注入 sidecar 白名单（Kun 启动恢复语义）
@@ -343,6 +355,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             setMode,
             panelOpen,
             setPanelOpen: togglePanel,
+            policyKeys,
         }),
         [
             desktop,
@@ -359,6 +372,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             setMode,
             panelOpen,
             togglePanel,
+            policyKeys,
         ],
     );
 

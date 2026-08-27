@@ -32,7 +32,10 @@ export function CommandPalette() {
     selectWorkspace,
     addWorkspaceByPicker,
     setPanelOpen,
+    policyKeys,
   } = useDesktop();
+  /** T4.5 策略：不允许多工作区时隐藏"添加工作区"入口 */
+  const allowAddWorkspace = policyKeys?.allowMultipleWorkspaces !== false;
 
   useEffect(() => {
     if (!desktop) return;
@@ -133,15 +136,17 @@ export function CommandPalette() {
               切换工作区：{w.name}
             </CommandItem>
           ))}
-          <CommandItem
-            onSelect={() => {
-              void addWorkspaceByPicker();
-              close();
-            }}
-          >
-            <FolderPlus className="size-3.5" />
-            添加工作区…
-          </CommandItem>
+          {allowAddWorkspace && (
+            <CommandItem
+              onSelect={() => {
+                void addWorkspaceByPicker();
+                close();
+              }}
+            >
+              <FolderPlus className="size-3.5" />
+              添加工作区…
+            </CommandItem>
+          )}
         </CommandGroup>
         <CommandGroup heading="视图">
           <CommandItem
