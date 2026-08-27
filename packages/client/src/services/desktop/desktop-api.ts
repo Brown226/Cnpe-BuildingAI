@@ -97,8 +97,13 @@ export const desktopApi = {
         return rpc("workspace.remove", { dir });
     },
 
-    respondApproval(requestId: string, approved: boolean, reason?: string): Promise<void> {
-        return notify("approval/respond", { requestId, approved, reason });
+    respondApproval(
+        requestId: string,
+        approved: boolean,
+        reason?: string,
+        remember?: boolean,
+    ): Promise<void> {
+        return notify("approval/respond", { requestId, approved, reason, remember });
     },
 
     /** 列目录（懒加载文件树用） */

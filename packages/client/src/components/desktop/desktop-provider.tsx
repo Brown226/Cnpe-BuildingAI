@@ -27,7 +27,12 @@ interface DesktopContextValue {
     /** sidecar 是否就绪（initialize 完成） */
     ready: boolean;
     pendingApprovals: ApprovalRequestPayload[];
-    respond: (requestId: string, approved: boolean, reason?: string) => void;
+    respond: (
+        requestId: string,
+        approved: boolean,
+        reason?: string,
+        remember?: boolean,
+    ) => void;
     refreshWorkspacesSignal: number;
     /** 记忆的工作区列表（localStorage 持久化） */
     workspaces: WorkspaceEntry[];
@@ -104,11 +109,19 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
-    const respond = useCallback((requestId: string, approved: boolean, reason?: string) => {
-        void desktopApi.respondApproval(requestId, approved, reason);
-        setPendingApprovals((list) => list.filter((a) => a.requestId !== requestId));
-        if (!approved && reason) toast.info(reason);
-    }, []);
+    const respond = useCallback(
+        (
+            requestId: string,
+            approved: boolean,
+            reason?: string,
+            remember?: boolean,
+        ) => {
+            void desktopApi.respondApproval(requestId, approved, reason, remember);
+            setPendingApprovals((list) => list.filter((a) => a.requestId !== requestId));
+            if (!approved && reason) toast.info(reason);
+        },
+        [],
+    );
 
     // 启动时恢复记忆列表（非桌面环境读到的为空，无副作用）
     useEffect(() => {

@@ -60,6 +60,14 @@ export function ApprovalCardsHost() {
                         </Button>
                         <Button
                             size="sm"
+                            variant="secondary"
+                            title="本次会话中同类操作不再询问"
+                            onClick={() => respond(req.requestId, true, undefined, true)}
+                        >
+                            总是允许
+                        </Button>
+                        <Button
+                            size="sm"
                             variant="outline"
                             onClick={() => respond(req.requestId, false, "已拒绝本次操作")}
                         >
