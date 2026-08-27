@@ -135,4 +135,20 @@ export const desktopApi = {
     workspaceSetActive(dir: string): Promise<{ active: string }> {
         return rpc("workspace.setActive", { dir });
     },
+
+    /** 监听工作区变更（native 失败 sidecar 自动降级轮询） */
+    fsWatch(root: string): Promise<{ watching: boolean }> {
+        return rpc("fs.watch", { root });
+    },
+
+    fsUnwatch(root: string): Promise<{ watching: boolean }> {
+        return rpc("fs.unwatch", { root });
+    },
+
+    /** 解析文档为纯文本（docx/xlsx/csv/txt/md） */
+    officeParse(
+        path: string,
+    ): Promise<{ text: string; truncated: boolean; kind: string }> {
+        return rpc("office.parse", { path });
+    },
 };

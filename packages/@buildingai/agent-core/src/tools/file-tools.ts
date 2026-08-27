@@ -105,7 +105,10 @@ export class FileTools {
         }
 
         fs.mkdirSync(path.dirname(abs), { recursive: true });
-        fs.writeFileSync(abs, content, "utf8");
+        // 原子写：tmp + rename（Kun workspace-file-core 同款）
+        const tmp = `${abs}.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        fs.writeFileSync(tmp, content, "utf8");
+        fs.renameSync(tmp, abs);
         this.audit.record({
             type: "tool.call",
             action: "fs.write",

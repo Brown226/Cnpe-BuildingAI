@@ -26,7 +26,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useCallback, useEffect, useState } from "react";
 
-import { desktopApi } from "@/services/desktop/desktop-api";
+import { desktopApi, onAgentEvent } from "@/services/desktop/desktop-api";
 import { useDesktop } from "./desktop-provider";
 
 type Entry = { name: string; type: "file" | "dir"; size?: number; mtimeMs?: number };
@@ -93,6 +93,26 @@ export function WorkspaceFilePanel({ open, onClose }: { open: boolean; onClose: 
     setPreview(null);
     void loadDir(root);
     void loadRecent(root);
+    void desktopApi.fsWatch(root).catch(() => undefined);
+    let unlisten: (() => void) | undefined;
+    void onAgentEvent((frame) => {
+      if (frame.method !== "engine/event") return;
+      if (frame.params?.kind !== "fs/changed") return;
+      if (frame.params.root && frame.params.root !== root) return;
+      void loadDir(root);
+      void loadRecent(root);
+      setExpanded((s) => {
+        for (const d of s) if (d !== root && tree[d]) void loadDir(d);
+        return s;
+      });
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+      void desktopApi.fsUnwatch(root).catch(() => undefined);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, root, refreshWorkspacesSignal, loadDir, loadRecent]);
 
   if (!desktop || !open || !root) return null;
@@ -140,9 +160,21 @@ export function WorkspaceFilePanel({ open, onClose }: { open: boolean; onClose: 
     setPreviewLoading(true);
     setPreview({ path, text: "", truncated: false });
     setTab("preview");
+    const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
+    const isOffice = [".docx", ".xlsx", ".xlsm", ".csv"].includes(ext);
     try {
-      const r = await desktopApi.fsRead(path);
-      setPreview({ path, text: r.content, truncated: r.truncated });
+      if (isOffice) {
+        // docx/xlsx 走 office.parse 提取文本（Kun 多格式预览的文本级实现）
+        const r = await desktopApi.officeParse(path);
+        setPreview({
+          path,
+          text: r.text || `（${ext} 文档无可提取文本）`,
+          truncated: r.truncated,
+        });
+      } else {
+        const r = await desktopApi.fsRead(path);
+        setPreview({ path, text: r.content, truncated: r.truncated });
+      }
     } catch (err) {
       setPreview({ path, text: `（无法预览：${String(err)}）`, truncated: false });
     } finally {

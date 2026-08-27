@@ -23,6 +23,7 @@ import { Suggestions } from "./components/input/suggestions";
 import { MessageItem } from "./components/message/message-item";
 import { ModelSelector } from "./components/model-selector";
 import { useDesktop } from "@/components/desktop/desktop-provider";
+import { WorkspacePicker } from "@/components/desktop/workspace-picker";
 import { getLocalThread } from "@/services/desktop/thread-store";
 import { useAssistantContext } from "./context";
 
@@ -246,12 +247,19 @@ const InputArea = memo(function InputArea({
     });
   }, [isLogin, location.pathname, location.search, navigate]);
 
+  const { desktop } = useDesktop();
+
   return (
     <div className={cn("sticky z-10", id ? "bottom-13" : "bottom-0")}>
       <InfiniteScrollTopScrollButton className="-top-12 z-20" />
       <div className="bg-background mx-auto w-full max-w-3xl rounded-t-lg">
         {!hasMessages && suggestions.length > 0 && !isLoading && (
           <Suggestions suggestions={suggestions} onSuggestionClick={handleSuggestionClick} />
+        )}
+        {desktop && (
+          <div className="px-3 pt-2">
+            <WorkspacePicker />
+          </div>
         )}
         <PromptInput
           textareaRef={textareaRef}

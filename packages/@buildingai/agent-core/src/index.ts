@@ -3,6 +3,8 @@
  * 由 Tauri Rust Core 以子进程方式拉起；stdin/stdout 承载行分隔 JSON-RPC。
  * stdout 只输出协议帧——任何日志必须走 stderr。
  */
+import fs from "node:fs";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -363,6 +365,105 @@ rpc.register("fs.delete", async (params) => {
 });
 
 /** 最近修改文件（右侧工作区面板数据源） */
+// ── 目录监听（Kun workspace-file-watcher：native 优先，失败降级轮询） ──
+
+type WatchState = {
+    watcher: fs.FSWatcher | null;
+    timer: NodeJS.Timeout | null;
+    snapshot: Map<string, number>;
+};
+const watchStates = new Map<string, WatchState>();
+let notifyTimer: NodeJS.Timeout | null = null;
+
+function snapshotRoot(root: string): Map<string, number> {
+    const snap = new Map<string, number>();
+    const walk = (dir: string, depth: number): void => {
+        if (depth > 3 || snap.size > 1500) return;
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            return;
+        }
+        for (const e of entries) {
+            const full = path.join(dir, e.name);
+            try {
+                const st = fs.statSync(full);
+                snap.set(full, st.mtimeMs);
+                if (e.isDirectory()) walk(full, depth + 1);
+            } catch {
+                /* race，忽略 */
+            }
+        }
+    };
+    walk(root, 1);
+    return snap;
+}
+
+function scheduleNotify(root: string): void {
+    if (notifyTimer) clearTimeout(notifyTimer);
+    notifyTimer = setTimeout(() => {
+        notifyTimer = null;
+        rpc.notify("engine/event", { kind: "fs/changed", root });
+    }, 400);
+}
+
+function stopWatch(root: string): void {
+    const state = watchStates.get(root);
+    if (!state) return;
+    state.watcher?.close();
+    if (state.timer) clearInterval(state.timer);
+    watchStates.delete(root);
+}
+
+function startWatch(root: string): void {
+    if (watchStates.has(root)) return;
+    const state: WatchState = { watcher: null, timer: null, snapshot: snapshotRoot(root) };
+    watchStates.set(root, state);
+    try {
+        state.watcher = fs.watch(
+            root,
+            { recursive: true },
+            () => {
+                state.snapshot = snapshotRoot(root);
+                scheduleNotify(root);
+            },
+        );
+        state.watcher.on("error", () => {
+            // native 失败 → 轮询降级
+            state.watcher?.close();
+            state.watcher = null;
+            if (!state.timer) {
+                state.timer = setInterval(() => {
+                    const next = snapshotRoot(root);
+                    if (
+                        next.size !== state.snapshot.size ||
+                        [...next].some(([k, v]) => state.snapshot.get(k) !== v)
+                    ) {
+                        state.snapshot = next;
+                        scheduleNotify(root);
+                    }
+                }, 1500);
+            }
+        });
+    } catch {
+        state.watcher = null;
+    }
+}
+
+rpc.register("fs.watch", (params) => {
+    requireInitialized();
+    const root = str(params, "root");
+    startWatch(root);
+    return { watching: true };
+});
+
+rpc.register("fs.unwatch", (params) => {
+    requireInitialized();
+    stopWatch(str(params, "root"));
+    return { watching: false };
+});
+
 rpc.register("fs.recent", (params) => {
     requireInitialized();
     const p = params as { root?: string; limit?: number; maxDepth?: number };
@@ -474,6 +575,7 @@ void randomUUID;
 
 process.on("disconnect", () => {
     logStderr("stdin 断开，停机流程开始");
+    for (const root of [...watchStates.keys()]) stopWatch(root);
     approvals.rejectAll("sidecar 停机");
     void audit.shutdown().finally(() => process.exit(0));
 });
