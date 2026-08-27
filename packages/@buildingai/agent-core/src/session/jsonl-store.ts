@@ -4,6 +4,7 @@
  * 布局（sessionsDir 下按会话分目录，目录即索引）：
  *   <sessionsDir>/<sessionId>/meta.json     会话元数据（mode/cwd/标题/时间戳，原子写）
  *   <sessionsDir>/<sessionId>/messages.jsonl 对话文本流（user/assistant，坏行容忍追加）
+ *   <sessionsDir>/<sessionId>/events.jsonl   完整引擎事件流（诊断/回放/审计，坏行容忍追加）
  *
  * 语义：正文只存本机（A5 决策：会话不传服务端）；坏行容忍（逐行 try-parse，
  * 半行尾部/损坏行跳过）；追加写无需原子性（JSONL 行级容忍），meta 用 tmp+rename 原子写。
@@ -116,6 +117,37 @@ export class SessionJsonlStore {
         return out;
     }
 
+    // ── events（完整引擎事件流，Kun events.jsonl 语义） ───────────────
+
+    /** 追加一条引擎事件（带时间戳；坏行容忍由读取侧保证） */
+    appendEvent(id: string, event: unknown): void {
+        const p = this.eventsPath(id);
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.appendFileSync(p, `${JSON.stringify({ ts: Date.now(), event })}\n`, "utf8");
+    }
+
+    /** 读取完整事件流（诊断/审计；坏行跳过） */
+    readEvents(id: string): Array<{ ts: number; event: unknown }> {
+        let raw: string;
+        try {
+            raw = fs.readFileSync(this.eventsPath(id), "utf8");
+        } catch {
+            return [];
+        }
+        const out: Array<{ ts: number; event: unknown }> = [];
+        for (const line of raw.split("\n")) {
+            const t = line.trim();
+            if (!t) continue;
+            try {
+                const rec = JSON.parse(t) as { ts?: number; event?: unknown };
+                if (rec && "event" in rec) out.push({ ts: rec.ts ?? Date.now(), event: rec.event });
+            } catch {
+                /* 坏行容忍：跳过 */
+            }
+        }
+        return out;
+    }
+
     // ── 内部 ─────────────────────────────────────────────────────────
 
     private sessionDir(id: string): string {
@@ -128,6 +160,10 @@ export class SessionJsonlStore {
 
     private messagesPath(id: string): string {
         return path.join(this.sessionDir(id), "messages.jsonl");
+    }
+
+    private eventsPath(id: string): string {
+        return path.join(this.sessionDir(id), "events.jsonl");
     }
 
     private writeMeta(id: string, meta: SessionMeta): void {

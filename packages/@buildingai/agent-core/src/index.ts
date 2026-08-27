@@ -604,11 +604,13 @@ rpc.register("session.send", (params) => {
 });
 
 async function pumpSessionEvents(sessionId: string, text: string, mode?: string): Promise<void> {
-    // T1.3：user 消息先落盘；事件流累计 assistant 文本与工具摘要，done/error 时落盘
+    // T1.3：user 消息先落盘；事件流累计 assistant 文本与工具摘要，done/error 时落盘；
+    // 每个引擎事件同时追加到 events.jsonl（Kun 完整事件流语义，诊断/回放/审计用）
     sessions?.appendMessage(sessionId, { role: "user", text, ts: Date.now() });
     let assistantText = "";
     let toolSummary = "";
     for await (const event of engine.sendMessage(sessionId, { text, mode: normalizeMode(mode) })) {
+        sessions?.appendEvent(sessionId, event);
         if (event.type === "text_delta") assistantText += event.delta;
         else if (event.type === "tool_call_end")
             toolSummary += `\n[工具 ${event.name ?? "tool"} ${event.ok ? "完成" : "失败"} · ${event.durationMs ?? 0}ms]`;

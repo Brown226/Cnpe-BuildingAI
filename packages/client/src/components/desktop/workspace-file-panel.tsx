@@ -34,6 +34,7 @@ import { desktopApi, onAgentEvent } from "@/services/desktop/desktop-api";
 import { useDesktop } from "./desktop-provider";
 import { GitPanel } from "./git-panel";
 import { SlidesPreview } from "./slides-preview";
+import { MarkdownEditor } from "./markdown-editor";
 
 type Entry = { name: string; type: "file" | "dir"; size?: number; mtimeMs?: number };
 interface RecentFile {
@@ -773,6 +774,22 @@ export function WorkspaceFilePanel({
                 </table>
               </div>
             </div>
+          ) : editing && preview?.kind === "markdown" ? (
+            <MarkdownEditor
+              initial={preview.text}
+              onSave={(md) => {
+                setPreview({ ...preview, text: md });
+                void withBusy(async () => {
+                  await desktopApi.fsWrite(preview.path, md);
+                  toast.success("已保存");
+                  setEditing(false);
+                });
+              }}
+              onCancel={() => {
+                setEditing(false);
+                setEditText("");
+              }}
+            />
           ) : editing ? (
             <div className="flex flex-1 flex-col overflow-hidden">
               <div className="flex items-center gap-2 border-b px-3 py-1.5">
