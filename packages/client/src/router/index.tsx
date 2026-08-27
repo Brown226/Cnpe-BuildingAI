@@ -24,6 +24,7 @@ import ChatPage from "../pages/chat";
 import { LoginPage } from "../pages/login";
 import { OAuthCallbackPage } from "../pages/login/oauth-callback";
 import AlipayReturnPage from "../pages/payment/alipay-return";
+import { AutomationsPage } from "../pages/automations";
 import { DesktopProjectsSection } from "@/components/desktop/sidebar-projects-section";
 import { ModeTabs } from "@/components/desktop/mode-tabs";
 import { DesktopRightPanel } from "@/components/desktop/desktop-right-panel";
@@ -117,6 +118,10 @@ export const router = createBrowserRouter([
           {
             path: "/chat",
             element: <ChatPage />,
+          },
+          {
+            path: "/automations",
+            element: <AutomationsPage />,
           },
           {
             path: "/chat/:id",

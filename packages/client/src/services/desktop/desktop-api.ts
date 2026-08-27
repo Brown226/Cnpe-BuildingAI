@@ -221,4 +221,47 @@ export const desktopApi = {
     }> {
         return rpc("session.get", { sessionId });
     },
+
+    // ── 定时任务（T5.1） ────────────────────────────────────────────
+    scheduleList(): Promise<{
+        tasks: Array<{
+            id: string;
+            name: string;
+            instructions: string;
+            schedule: { kind: string; at?: number; hour?: number; minute?: number; daysOfWeek?: number[]; timezone: string };
+            enabled: boolean;
+            lastRunAt?: number;
+        }>;
+        records: Array<{
+            id: string;
+            taskId: string;
+            at: number;
+            status: string;
+            summary?: string;
+            error?: string;
+        }>;
+    }> {
+        return rpc("schedule.list");
+    },
+
+    scheduleCreate(input: {
+        name: string;
+        instructions: string;
+        schedule: { kind: "once" | "daily" | "weekly"; at?: number; hour?: number; minute?: number; daysOfWeek?: number[]; timezone: string };
+        mode?: "code" | "work";
+    }): Promise<{ task: { id: string } }> {
+        return rpc("schedule.create", input);
+    },
+
+    scheduleDelete(id: string): Promise<{ deleted: boolean }> {
+        return rpc("schedule.delete", { id });
+    },
+
+    scheduleRun(id: string): Promise<{ record: unknown }> {
+        return rpc("schedule.run", { id });
+    },
+
+    scheduleRecords(id?: string): Promise<{ records: unknown[] }> {
+        return rpc("schedule.records", { id: id ?? null });
+    },
 };
