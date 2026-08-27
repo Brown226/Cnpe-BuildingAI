@@ -32,6 +32,7 @@ import type { EngineEvent } from "./engine/types.js";
 import { SessionJsonlStore } from "./session/jsonl-store.js";
 import { AutomationScheduler } from "./schedule/scheduler.js";
 import { assertAutomationTimezone } from "./schedule/schedules.js";
+import { BrowserBridge } from "./browser/bridge.js";
 
 const rpc = new RpcServer();
 const audit = new AuditCollector();
@@ -46,6 +47,8 @@ const engine = new PiEngine();
 let sessions: SessionJsonlStore | null = null;
 /** T5.1 定时任务调度器（initialize 后初始化并启动） */
 let scheduler: AutomationScheduler | null = null;
+/** T3.6 浏览器桥：agent 工具 → 前端驱动内嵌浏览器 */
+const browser = new BrowserBridge((method, params) => rpc.notify(method, params));
 
 /** 平台自有工具：策略管控下的文件/命令能力，以受控形式交给 Agent 引擎。
  *  T2.4 工具按模式隔离：list_dir/read_file 通用（两模式）；
@@ -204,6 +207,44 @@ const platformTools: PlatformTool[] = [
                 typeof args.sheetName === "string" ? args.sheetName : undefined,
             );
             return { ok: true, summary: r.summary, data: r };
+        },
+    },
+    {
+        name: "browser_navigate",
+        description:
+            "在内置浏览器中打开指定网址并等待加载。用于访问网页、采集资料。",
+        parameters: {
+            type: "object",
+            properties: { url: { type: "string", description: "要打开的网址" } },
+            required: ["url"],
+        },
+        execute: async (args) => {
+            const r = await browser.request("navigate", String(args.url ?? ""));
+            return { ok: true, summary: `已导航到 ${String(args.url ?? "")}`, data: { result: r } };
+        },
+    },
+    {
+        name: "browser_read",
+        description:
+            "读取当前内置浏览器页面的可见文本内容，用于把网页信息带回工作区。",
+        parameters: { type: "object", properties: {}, required: [] },
+        execute: async () => {
+            const r = await browser.request("read");
+            return { ok: true, summary: r.slice(0, 6000), data: { chars: r.length } };
+        },
+    },
+    {
+        name: "browser_eval",
+        description:
+            "在内置浏览器当前页面执行一段 JavaScript 并返回结果。用于抓取结构化数据或操作页面元素。",
+        parameters: {
+            type: "object",
+            properties: { js: { type: "string", description: "要执行的 JavaScript" } },
+            required: ["js"],
+        },
+        execute: async (args) => {
+            const r = await browser.request("eval", String(args.js ?? ""));
+            return { ok: true, summary: r.slice(0, 6000), data: { chars: r.length } };
         },
     },
 ];
@@ -534,6 +575,13 @@ rpc.onNotification("approval/respond", (raw) => {
     approvals.respond(p.requestId, Boolean(p.approved), p.reason, Boolean(p.remember));
 });
 
+// T3.6 浏览器结果回传（agent 驱动内嵌浏览器）
+rpc.onNotification("browser/result", (raw) => {
+    const p = raw as { requestId?: string; result?: string; error?: string };
+    if (!p?.requestId) return;
+    browser.respond(p.requestId, p.result, p.error);
+});
+
 // ── 办公文档直通（与 fs.* 同级：供 UI/测试确定性调用；引擎侧另有同名工具） ──
 
 rpc.register("office.parse", async (params) => {
@@ -727,6 +775,7 @@ process.on("disconnect", () => {
     logStderr("stdin 断开，停机流程开始");
     for (const root of [...watchStates.keys()]) stopWatch(root);
     approvals.rejectAll("sidecar 停机");
+    browser.rejectAll();
     scheduler?.dispose();
     void audit.shutdown().finally(() => process.exit(0));
 });

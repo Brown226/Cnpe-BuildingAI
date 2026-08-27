@@ -10,6 +10,8 @@ import {
     pickFolder,
     startAgentEngine,
     stopAgentEngine,
+    browserApi,
+    notify,
     type ApprovalRequestPayload,
 } from "@/services/desktop/desktop-api";
 import {
@@ -69,6 +71,36 @@ const DesktopContext = createContext<DesktopContextValue>({
     panelOpen: false,
     setPanelOpen: () => undefined,
 });
+
+/** T3.6 处理 agent 的浏览器请求：invoke Tauri → 回填 browser/result */
+async function handleBrowserRequest(params?: Record<string, unknown>): Promise<void> {
+    const requestId = typeof params?.requestId === "string" ? params.requestId : "";
+    if (!requestId) return;
+    try {
+        const action = String(params?.action ?? "");
+        const payload = params?.payload as unknown;
+        let result = "";
+        if (action === "navigate") {
+            await browserApi.navigate(String(payload ?? ""));
+            result = "ok";
+        } else if (action === "eval") {
+            result = await browserApi.eval(String(payload ?? ""));
+        } else if (action === "read") {
+            result = await browserApi.read();
+        }
+        await notifyResult(requestId, result, undefined);
+    } catch (err) {
+        await notifyResult(requestId, undefined, String(err));
+    }
+}
+
+function notifyResult(
+    requestId: string,
+    result?: string,
+    error?: string,
+): Promise<void> {
+    return notify("browser/result", { requestId, result, error });
+}
 
 const MODE_STORAGE_KEY = "huashu.desktop.mode.v1";
 
@@ -267,6 +299,9 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                                 ? list
                                 : [...list, frame.params as unknown as ApprovalRequestPayload],
                         );
+                    } else if (method === "browser/request") {
+                        // T3.6 agent 驱动内嵌浏览器：请求 → invoke Tauri → 回传结果
+                        void handleBrowserRequest(frame.params).catch(() => undefined);
                     } else if (method === "engine/event") {
                         const kind = frame.params?.kind;
                         if (kind === "engine_ready") toast.success("本地智能引擎已就绪");

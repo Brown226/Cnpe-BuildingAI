@@ -30,6 +30,38 @@ export function isDesktop(): boolean {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+// ── 内嵌浏览器（T3.6 方案 A；Rust side browser.rs） ──────────────────
+
+export const browserApi = {
+    open(url: string, bounds: { x: number; y: number; w: number; h: number }): Promise<string> {
+        return invoke("browser_open", { url, ...bounds });
+    },
+    bounds(b: { x: number; y: number; w: number; h: number }): Promise<void> {
+        return invoke("browser_bounds", b);
+    },
+    navigate(url: string): Promise<void> {
+        return invoke("browser_navigate", { url });
+    },
+    eval(js: string): Promise<string> {
+        return invoke("browser_eval", { js });
+    },
+    goBack(): Promise<void> {
+        return invoke("browser_go_back");
+    },
+    goForward(): Promise<void> {
+        return invoke("browser_go_forward");
+    },
+    reload(): Promise<void> {
+        return invoke("browser_reload");
+    },
+    read(): Promise<string> {
+        return invoke("browser_read");
+    },
+    close(): Promise<void> {
+        return invoke("browser_close");
+    },
+};
+
 /** 拉起 sidecar（幂等） */
 export function startAgentEngine(scriptPath?: string): Promise<void> {
     return invoke("agent_start", { script: scriptPath ?? null, nodeBin: null, cwd: null });
