@@ -60,6 +60,7 @@ import { QuickCommandHandler, type QuickCommandStreamWriter } from "../handlers/
 import { ReflectionHandler } from "../handlers/reflection";
 import { CozeChatProvider } from "../providers/coze-chat.provider";
 import { DifyChatProvider } from "../providers/dify-chat.provider";
+import { RagflowChatProvider } from "../providers/ragflow-chat.provider";
 import { AgentChatMessageService } from "./agent-chat-message.service";
 import { AgentChatRecordService } from "./agent-chat-record.service";
 import { AgentsService } from "./agents.service";
@@ -135,6 +136,7 @@ export class AgentChatCompletionService {
         private readonly agentBillingHandler: AgentBillingHandler,
         private readonly cozeChatProvider: CozeChatProvider,
         private readonly difyChatProvider: DifyChatProvider,
+        private readonly ragflowChatProvider: RagflowChatProvider,
         private readonly userService: UserService,
     ) {}
 
@@ -151,7 +153,11 @@ export class AgentChatCompletionService {
                 where: { id: params.agentId },
             });
             if (!agent) throw HttpErrorFactory.notFound("智能体不存在");
-            if (agent.createMode === "coze" || agent.createMode === "dify") {
+            if (
+                agent.createMode === "coze" ||
+                agent.createMode === "dify" ||
+                agent.createMode === "ragflow"
+            ) {
                 const quickCommandResult = await this.preHandleQuickCommandReply({
                     agent,
                     params,
@@ -177,6 +183,17 @@ export class AgentChatCompletionService {
             }
             if (agent.createMode === "dify") {
                 await this.difyChatProvider.streamChat(
+                    agent,
+                    {
+                        ...params,
+                        ...(conversationId ? { conversationId } : {}),
+                    },
+                    response,
+                );
+                return;
+            }
+            if (agent.createMode === "ragflow") {
+                await this.ragflowChatProvider.streamChat(
                     agent,
                     {
                         ...params,

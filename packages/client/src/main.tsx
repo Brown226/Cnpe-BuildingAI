@@ -12,6 +12,8 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 
 import { SettingsDialogProvider } from "./components/settings-dialog";
+import { DesktopProvider } from "./components/desktop/desktop-provider";
+import { DesktopShellWidgets } from "./components/desktop/desktop-shell-widgets";
 import { defaultLocale, messages } from "./locales";
 import { router } from "./router";
 
@@ -36,9 +38,12 @@ createRoot(document.getElementById("root")!).render(
           <TooltipProvider>
             <AlertDialogProvider>
               <SettingsDialogProvider>
-                {/* <ReactQueryDevtools buttonPosition="top-right"  /> */}
-                <Toaster position="top-center" />
-                <RouterProvider router={router} />
+                <DesktopProvider>
+                  {/* <ReactQueryDevtools buttonPosition="top-right"  /> */}
+                  <Toaster position="top-center" />
+                  <RouterProvider router={router} />
+                  <DesktopShellWidgets />
+                </DesktopProvider>
               </SettingsDialogProvider>
             </AlertDialogProvider>
           </TooltipProvider>

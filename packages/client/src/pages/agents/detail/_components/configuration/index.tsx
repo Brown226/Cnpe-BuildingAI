@@ -246,7 +246,8 @@ export default function Configuration() {
   const [saveError, setSaveError] = useState(false);
 
   const createMode = agent?.createMode ?? "direct";
-  const isThirdPartyMode = createMode === "coze" || createMode === "dify";
+  const isThirdPartyMode =
+    createMode === "coze" || createMode === "dify" || createMode === "ragflow";
 
   const createConfigFromAgent = useCallback(
     (currentAgent: NonNullable<typeof agent>): ConfigState => ({
@@ -332,7 +333,11 @@ export default function Configuration() {
           voiceConfig: next.voiceConfig ?? undefined,
         };
 
-        if (agent?.createMode === "coze" || agent?.createMode === "dify") {
+        if (
+          agent?.createMode === "coze" ||
+          agent?.createMode === "dify" ||
+          agent?.createMode === "ragflow"
+        ) {
           payload.thirdPartyIntegration = next.thirdPartyIntegration ?? undefined;
         }
 
@@ -353,8 +358,19 @@ export default function Configuration() {
         ) {
           toast.error(`${extConfig.difySyncError}`);
         }
+        if (
+          agent?.createMode === "ragflow" &&
+          extConfig?.ragflowSyncStatus === "failed" &&
+          extConfig?.ragflowSyncError
+        ) {
+          toast.error(`${extConfig.ragflowSyncError}`);
+        }
 
-        if (savedAgent?.createMode === "coze" || savedAgent?.createMode === "dify") {
+        if (
+          savedAgent?.createMode === "coze" ||
+          savedAgent?.createMode === "dify" ||
+          savedAgent?.createMode === "ragflow"
+        ) {
           const refreshedAgentResult = await refetchAgentDetail();
           const latestAgent =
             !refreshedAgentResult.error && refreshedAgentResult.data
@@ -523,7 +539,7 @@ export default function Configuration() {
                   <div className="space-y-4">
                     {isThirdPartyMode ? (
                       <ThirdPartyIntegration
-                        mode={createMode as "coze" | "dify"}
+                        mode={createMode as "coze" | "dify" | "ragflow"}
                         value={config.thirdPartyIntegration as any}
                         onChange={(v: any) => updateConfig("thirdPartyIntegration", v)}
                       />

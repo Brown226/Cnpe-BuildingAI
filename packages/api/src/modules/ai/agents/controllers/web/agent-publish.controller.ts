@@ -87,7 +87,11 @@ export class AgentPublishWebController {
             }
         }
 
-        if (agent.createMode === "coze" || agent.createMode === "dify") {
+        if (
+            agent.createMode === "coze" ||
+            agent.createMode === "dify" ||
+            agent.createMode === "ragflow"
+        ) {
             const agentConfig = await this.agentConfigService.getConfig();
             const currentType = agentConfig.createTypes.find(
                 (item) => item.key === agent.createMode,

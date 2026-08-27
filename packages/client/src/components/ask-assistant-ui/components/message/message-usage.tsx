@@ -1,6 +1,7 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@buildingai/ui/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@buildingai/ui/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@buildingai/ui/components/ui/tooltip";
+import { useConfigStore } from "@buildingai/stores";
 import { BarChart3Icon } from "lucide-react";
 import { memo, useRef, useState } from "react";
 
@@ -50,6 +51,10 @@ export const MessageUsage = memo(function MessageUsage({
   const reasoningTokens = usage?.reasoningTokens ?? outputDetails?.reasoningTokens ?? 0;
   const cachedInputTokens = usage?.cachedInputTokens ?? inputDetails?.cacheReadTokens ?? 0;
   const consumedPower = userConsumedPower ?? 0;
+  // 企业免费模式（计费关闭）下不展示积分消耗视图
+  const billingEnabled =
+    useConfigStore((state) => state.config)?.websiteConfig?.features?.billingEnabled ?? false;
+  const effectiveViewMode: ViewMode = !billingEnabled ? "token" : viewMode;
 
   return (
     <Popover>
@@ -86,7 +91,7 @@ export const MessageUsage = memo(function MessageUsage({
                 </Tooltip>
               ) : (
                 <div className="text-sm font-semibold">
-                  {viewMode === "token" ? "Token用量" : "积分消耗"}
+                  {effectiveViewMode === "token" ? "Token用量" : "积分消耗"}
                 </div>
               )}
             </div>
@@ -103,13 +108,15 @@ export const MessageUsage = memo(function MessageUsage({
                 <TabsTrigger value="token" className="text-xs">
                   Token
                 </TabsTrigger>
-                <TabsTrigger value="power" className="text-xs">
-                  积分
-                </TabsTrigger>
+                {billingEnabled && (
+                  <TabsTrigger value="power" className="text-xs">
+                    积分
+                  </TabsTrigger>
+                )}
               </TabsList>
             </Tabs>
           </div>
-          {viewMode === "token" ? (
+          {effectiveViewMode === "token" ? (
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">

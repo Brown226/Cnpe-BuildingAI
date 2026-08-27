@@ -1,12 +1,16 @@
 import { BooleanNumber } from "@buildingai/constants/shared/status-codes.constant";
 import { useCopy } from "@buildingai/hooks";
 import {
+  type DepartmentTreeNode,
   type QueryUserDto,
   useDeleteUserMutation,
   type User,
+  useRoleListQuery,
   useSetUserStatusMutation,
   useUsersListQuery,
 } from "@buildingai/services/console";
+import { useConfigStore } from "@buildingai/stores";
+import { useQueryClient } from "@tanstack/react-query";
 import { PermissionGuard } from "@buildingai/ui/components/auth/permission-guard";
 import { Avatar, AvatarFallback, AvatarImage } from "@buildingai/ui/components/ui/avatar";
 import { Badge } from "@buildingai/ui/components/ui/badge";
@@ -53,6 +57,7 @@ import { useDebounceValue } from "usehooks-ts";
 import { PageContainer } from "@/layouts/console/_components/page-container";
 
 import { BalanceAdjustmentDialog } from "./_components/balance-adjustment-dialog";
+import { DepartmentTreePanel } from "./_components/department-tree-panel";
 import { MembershipAdjustmentDialog } from "./_components/membership-adjustment-dialog";
 import { ResetPasswordDialog } from "./_components/reset-password-dialog";
 import { SubscriptionRecordsDialog } from "./_components/subscription-records-dialog";
@@ -64,8 +69,13 @@ const PAGE_SIZE = 25;
 const UserListIndexPage = () => {
   const { copy, isCopying } = useCopy();
   const { confirm } = useAlertDialog();
+  const queryClient = useQueryClient();
+  // 企业免费模式（计费关闭）下隐藏会员/积分/订阅等 C 端商业操作入口
+  const billingEnabled =
+    useConfigStore((state) => state.config)?.websiteConfig?.features?.billingEnabled ?? false;
   const [keyword, setKeyword] = useState("");
   const [debouncedKeyword] = useDebounceValue(keyword.trim(), 300);
+  const [selectedDept, setSelectedDept] = useState<DepartmentTreeNode | null>(null);
   const [queryParams, setQueryParams] = useState<QueryUserDto>({
     page: 1,
     pageSize: PAGE_SIZE,
@@ -92,6 +102,25 @@ const UserListIndexPage = () => {
   }, [debouncedKeyword]);
 
   const { data, refetch, isLoading } = useUsersListQuery(queryParams);
+
+  // 角色列表（用于角色页签过滤）
+  const { data: rolesData } = useRoleListQuery({ page: 1, pageSize: 100 });
+  const roles = rolesData?.items ?? [];
+
+  /**
+   * 选中部门 → 列表按 departmentIds 过滤
+   */
+  const handleSelectDept = (node: DepartmentTreeNode | null) => {
+    setSelectedDept(node);
+    setQueryParams((prev) => ({ ...prev, departmentIds: node?.id, page: 1 }));
+  };
+
+  /**
+   * 角色页签过滤
+   */
+  const handleRoleChange = (roleId: string | undefined) => {
+    setQueryParams((prev) => ({ ...prev, roleId, page: 1 }));
+  };
 
   const { PaginationComponent } = usePagination({
     total: data?.total || 0,
@@ -156,8 +185,23 @@ const UserListIndexPage = () => {
 
   return (
     <PageContainer>
-      <div className="flex flex-1 flex-col gap-4">
-        <div className="bg-background sticky top-0 z-2 grid grid-cols-1 gap-4 pt-1 pb-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      <div className="flex gap-4">
+        <aside className="hidden w-60 shrink-0 md:block">
+          <div className="sticky top-4 max-h-[calc(100vh-2rem)]">
+            <DepartmentTreePanel
+              selectedId={selectedDept?.id ?? null}
+              onSelect={handleSelectDept}
+            />
+          </div>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+        <div className="text-sm font-medium">
+          {selectedDept ? selectedDept.name : "全部部门"} - 用户列表
+          <span className="text-muted-foreground ml-2 text-xs">共 {data?.total ?? 0} 人</span>
+        </div>
+
+        <div className="bg-background sticky top-0 z-2 grid grid-cols-1 gap-4 pt-1 pb-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <Input
             placeholder="通过用户编号/昵称/手机号搜索"
             className="text-sm"
@@ -182,8 +226,29 @@ const UserListIndexPage = () => {
           </PermissionGuard>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground text-xs">角色</span>
+          <Button
+            size="xs"
+            variant={!queryParams.roleId ? "secondary" : "ghost"}
+            onClick={() => handleRoleChange(undefined)}
+          >
+            全部
+          </Button>
+          {roles.map((role) => (
+            <Button
+              key={role.id}
+              size="xs"
+              variant={queryParams.roleId === role.id ? "secondary" : "ghost"}
+              onClick={() => handleRoleChange(role.id)}
+            >
+              {role.name}
+            </Button>
+          ))}
+        </div>
+
         <div className="flex-1">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <PermissionGuard permissions="users:create">
               <div
                 className="bg-card flex cursor-pointer flex-col gap-4 rounded-lg border border-dashed p-4 hover:border-solid"
@@ -301,6 +366,7 @@ const UserListIndexPage = () => {
                               编辑
                             </DropdownMenuItem>
                           </PermissionGuard>
+                          {billingEnabled && (
                           <PermissionGuard permissions="membership-order:system-adjustment">
                             <DropdownMenuItem
                               onClick={() => {
@@ -312,6 +378,8 @@ const UserListIndexPage = () => {
                               调整会员
                             </DropdownMenuItem>
                           </PermissionGuard>
+                        )}
+                        {billingEnabled && (
                           <PermissionGuard permissions="users:change-balance">
                             <DropdownMenuItem
                               onClick={() => {
@@ -323,17 +391,19 @@ const UserListIndexPage = () => {
                               调整积分
                             </DropdownMenuItem>
                           </PermissionGuard>
-                          <PermissionGuard permissions="users:reset-password">
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setResetPasswordUser(user);
-                                setResetPasswordDialogOpen(true);
-                              }}
-                            >
-                              <Key />
-                              重置密码
-                            </DropdownMenuItem>
-                          </PermissionGuard>
+                        )}
+                        <PermissionGuard permissions="users:reset-password">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setResetPasswordUser(user);
+                              setResetPasswordDialogOpen(true);
+                            }}
+                          >
+                            <Key />
+                            重置密码
+                          </DropdownMenuItem>
+                        </PermissionGuard>
+                        {billingEnabled && (
                           <PermissionGuard permissions="users:detail">
                             <DropdownMenuItem
                               onClick={() => {
@@ -345,6 +415,7 @@ const UserListIndexPage = () => {
                               订阅记录
                             </DropdownMenuItem>
                           </PermissionGuard>
+                        )}
                           <DropdownMenuSeparator />
                           <PermissionGuard permissions="users:delete">
                             <DropdownMenuItem
@@ -403,6 +474,7 @@ const UserListIndexPage = () => {
         <div className="bg-background sticky bottom-0 z-2 flex py-2">
           <PaginationComponent className="mx-0 w-fit" />
         </div>
+        </div>
       </div>
       <UserFormDialog
         open={formDialogOpen}
@@ -442,7 +514,10 @@ const UserListIndexPage = () => {
       <ImportEmployeesDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
-        onSuccess={() => refetch()}
+        onSuccess={() => {
+          refetch();
+          void queryClient.invalidateQueries({ queryKey: ["department-tree"] });
+        }}
       />
     </PageContainer>
   );

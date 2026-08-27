@@ -85,6 +85,10 @@ export type QueryUserDto = {
     status?: BooleanNumberType;
     startTime?: string;
     endTime?: string;
+    /** 部门过滤：逗号分隔的部门 ID（如 "id1,id2"），命中任一部门即返回 */
+    departmentIds?: string;
+    /** 角色过滤 */
+    roleId?: string;
 };
 
 export type CreateUserDto = {

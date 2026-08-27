@@ -250,7 +250,7 @@ const ChatConfigForm = ({ apiData }: ChatConfigFormProps) => {
                         <FormControl>
                           <Input
                             required
-                            placeholder="例如：👋 Hi, How can I help you?"
+                            placeholder="例如：👋 你好，我可以帮你做什么？"
                             className="w-full max-w-2xl"
                             {...field}
                           />

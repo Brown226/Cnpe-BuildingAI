@@ -1,7 +1,6 @@
 import { useConfigStore } from "@buildingai/stores";
 import SvgIcons from "@buildingai/ui/components/svg-icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@buildingai/ui/components/ui/avatar";
-import { Badge } from "@buildingai/ui/components/ui/badge";
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -39,7 +38,6 @@ export function ConsoleLogo() {
                   <span className="text-muted-foreground">
                     v{websiteConfig?.webinfo.version || "26.0.0"}
                   </span>
-                  <Badge variant="outline">社区版</Badge>
                 </span>
               </div>
             </>

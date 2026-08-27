@@ -1,9 +1,9 @@
+import { consoleHttpClient } from "@buildingai/services";
 import {
   type CreateDepartmentDto,
   type DepartmentTreeNode,
   type UpdateDepartmentDto,
   useCreateDepartmentMutation,
-  useDeleteDepartmentMutation,
   useDepartmentTreeQuery,
   useUpdateDepartmentMutation,
 } from "@buildingai/services/console";
@@ -37,6 +37,7 @@ import { PageContainer } from "@/layouts/console/_components/page-container";
  * 部门管理页面
  *
  * 以树形结构展示部门，支持新建、重命名、调整父级、删除。
+ * 删除非空部门时，其直属子部门自动上提为一级部门（部门下存在用户时后端拒绝删除）。
  */
 const DepartmentIndexPage = () => {
   const { data, isLoading, refetch } = useDepartmentTreeQuery();
@@ -54,13 +55,6 @@ const DepartmentIndexPage = () => {
     },
     onError: (e) => toast.error(`更新失败: ${e.message}`),
   });
-  const deleteMutation = useDeleteDepartmentMutation({
-    onSuccess: () => {
-      toast.success("部门删除成功");
-      refetch();
-    },
-    onError: (e) => toast.error(`删除失败: ${e.message}`),
-  });
   const { confirm } = useAlertDialog();
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -68,28 +62,32 @@ const DepartmentIndexPage = () => {
   const [editingNode, setEditingNode] = useState<DepartmentTreeNode | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // 扁平化所有部门（供父级选择器）
-  const flatList = useMemo(() => {
-    const result: DepartmentTreeNode[] = [];
-    const walk = (nodes: DepartmentTreeNode[]) => {
-      for (const n of nodes) {
-        result.push(n);
-        walk(n.children ?? []);
-      }
-    };
-    walk(data ?? []);
-    return result;
-  }, [data]);
-
   const handleDelete = async (node: DepartmentTreeNode) => {
-    const ok = await confirm({
-      title: "删除部门",
-      description: `确定删除部门「${node.name}」吗？存在子部门或用户时无法删除。`,
-      confirmText: "删除",
-      confirmVariant: "destructive" as const,
-    });
-    if (ok) {
-      deleteMutation.mutate(node.id);
+    const hasChildren = (node.children?.length ?? 0) > 0;
+    try {
+      // 用户取消时 confirm 会抛出异常
+      await confirm({
+        title: "删除部门",
+        description: hasChildren
+          ? `确定删除部门「${node.name}」吗？其直属子部门将上提为一级部门。`
+          : `确定删除部门「${node.name}」吗？部门下存在用户时无法删除。`,
+        confirmText: "删除",
+        confirmVariant: "destructive" as const,
+      });
+    } catch {
+      return;
+    }
+
+    try {
+      // 直属子部门上提为一级部门（parentId 置空），再删除自身
+      for (const child of node.children ?? []) {
+        await consoleHttpClient.patch(`/department/${child.id}`, { parentId: null });
+      }
+      await consoleHttpClient.delete(`/department/${node.id}`);
+      toast.success("部门删除成功");
+      refetch();
+    } catch (error) {
+      toast.error(`删除失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -148,7 +146,6 @@ const DepartmentIndexPage = () => {
               size="sm"
               className="size-7 p-0 text-destructive"
               onClick={() => handleDelete(node)}
-              disabled={node.system === 1}
             >
               <Trash2 className="size-4" />
             </Button>
@@ -189,7 +186,7 @@ const DepartmentIndexPage = () => {
         open={createOpen}
         onOpenChange={setCreateOpen}
         mode="create"
-        flatList={flatList}
+        tree={data ?? []}
         onSubmit={(values) => createMutation.mutate(values)}
         isPending={createMutation.isPending}
       />
@@ -199,7 +196,7 @@ const DepartmentIndexPage = () => {
         onOpenChange={setEditOpen}
         mode="edit"
         node={editingNode}
-        flatList={flatList}
+        tree={data ?? []}
         onSubmit={(values) => {
           if (!editingNode) return;
           updateMutation.mutate({ id: editingNode.id, dto: values });
@@ -215,7 +212,7 @@ type DepartmentFormDialogProps = {
   onOpenChange: (open: boolean) => void;
   mode: "create" | "edit";
   node?: DepartmentTreeNode | null;
-  flatList: DepartmentTreeNode[];
+  tree: DepartmentTreeNode[];
   onSubmit: (values: CreateDepartmentDto & UpdateDepartmentDto) => void;
   isPending: boolean;
 };
@@ -225,19 +222,41 @@ function DepartmentFormDialog({
   onOpenChange,
   mode,
   node,
-  flatList,
+  tree,
   onSubmit,
   isPending,
 }: DepartmentFormDialogProps) {
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState<string>("no-parent");
 
+  // 父部门候选项：按树层级缩进展示；编辑时排除自身及其子孙（防止成环）
+  const options = useMemo(() => {
+    const result: { node: DepartmentTreeNode; depth: number }[] = [];
+    const walk = (
+      nodes: DepartmentTreeNode[],
+      depth: number,
+      skipId?: string,
+    ) => {
+      for (const n of nodes) {
+        if (skipId && n.id === skipId) continue;
+        result.push({ node: n, depth });
+        walk(n.children ?? [], depth + 1, skipId);
+      }
+    };
+    walk(tree, 0, mode === "edit" ? node?.id : undefined);
+    return result;
+  }, [tree, mode, node?.id]);
+
   useEffect(() => {
-    if (open) {
-      setName(node?.name ?? "");
+    if (!open) return;
+    setName(node?.name ?? "");
+    if (mode === "edit") {
       setParentId(node?.parentId ?? "no-parent");
+    } else {
+      // 新建：默认挂在第一个一级部门下；树为空时才允许创建为一级部门
+      setParentId(tree[0]?.id ?? "no-parent");
     }
-  }, [open, node]);
+  }, [open, node, mode, tree]);
 
   const handleSubmit = () => {
     if (!name.trim()) {
@@ -258,7 +277,7 @@ function DepartmentFormDialog({
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "新建部门" : "编辑部门"}</DialogTitle>
           <DialogDescription>
-            {mode === "create" ? "创建一个新的部门节点" : "修改部门名称或调整层级"}
+            {mode === "create" ? "在所选上级部门下创建新的部门节点" : "修改部门名称或调整层级"}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -276,17 +295,26 @@ function DepartmentFormDialog({
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="选择上级部门" />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="no-parent">无（一级部门）</SelectItem>
-                {flatList
-                  .filter((d) => d.id !== node?.id)
-                  .map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.name}
-                    </SelectItem>
-                  ))}
+              <SelectContent className="max-h-72">
+                {mode === "edit" && (
+                  <SelectItem value="no-parent">无（提升为一级部门）</SelectItem>
+                )}
+                {options.map(({ node: d, depth }) => (
+                  <SelectItem key={d.id} value={d.id} className="pl-2">
+                    {"\u00A0\u00A0".repeat(depth)}
+                    {depth > 0 && (
+                      <span className="text-muted-foreground mr-1">└</span>
+                    )}
+                    {d.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
+            {mode === "create" && options.length === 0 && (
+              <p className="text-muted-foreground text-xs">
+                当前没有部门，保存后将创建为一级部门
+              </p>
+            )}
           </div>
         </div>
         <DialogFooter>

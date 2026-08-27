@@ -174,6 +174,39 @@ export class UserService extends BaseService<User> {
             }
         }
 
+                // 部门 / 角色过滤（与关键词、状态等条件 AND 组合）
+        const andConditions: Record<string, unknown> = {};
+
+        if (dto.departmentIds?.length) {
+            const rows = await this.departmentUserIndexRepository.find({
+                select: ["userId"],
+                where: { departmentId: In(dto.departmentIds) },
+            });
+            // 命中任一部门即返回；无成员时用不存在的 ID 强制空结果
+            const userIds = Array.from(new Set(rows.map((row) => row.userId).filter(Boolean)));
+            andConditions.id = In(userIds.length > 0 ? userIds : ["__no_department_user__"]);
+        }
+
+        if (dto.roleId) {
+            andConditions.role = { id: dto.roleId };
+        }
+
+        if (Object.keys(andConditions).length > 0) {
+            if (where.length > 0) {
+                where.forEach((conditions) => {
+                    if (Array.isArray(conditions)) {
+                        conditions.forEach((condition) => {
+                            Object.assign(condition, andConditions);
+                        });
+                    } else {
+                        Object.assign(conditions, andConditions);
+                    }
+                });
+            } else {
+                where.push(andConditions);
+            }
+        }
+
         // 如果没有任何查询条件，添加默认的排除超级管理员条件
         if (!isEnabled(user.isRoot)) {
             where.push({ isRoot: 0 });

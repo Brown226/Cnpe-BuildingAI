@@ -1,0 +1,15 @@
+{
+    "extends": ["@buildingai/typescript-config/build.json", "./tsconfig.json"],
+    "compilerOptions": {
+        "composite": true,
+        "rootDir": "src",
+        "outDir": "dist",
+        "declarationMap": false,
+        "sourceMap": true,
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "target": "ES2022",
+        "tsBuildInfoFile": "dist/build.tsbuildinfo"
+    },
+    "exclude": ["src/**/__tests__/**"]
+}

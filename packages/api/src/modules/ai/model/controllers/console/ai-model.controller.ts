@@ -10,6 +10,7 @@ import { HttpErrorFactory } from "@buildingai/errors";
 import { ConsoleController } from "@common/decorators/controller.decorator";
 import { Permissions } from "@common/decorators/permissions.decorator";
 import {
+    BatchCreateAiModelsDto,
     BatchSortAiModelDto,
     BatchUpdateAiModelDto,
     CreateAiModelDto,
@@ -67,6 +68,27 @@ export class AiModelConsoleController extends BaseController {
         }
 
         return await this.aiModelService.createModel(dto);
+    }
+
+    /**
+     * 批量创建AI模型（远程模型快捷导入）
+     */
+    @Post("batch")
+    @Permissions({
+        code: "create",
+        name: "创建AI模型",
+    })
+    async batchCreate(@Body() dto: BatchCreateAiModelsDto) {
+        const provider = await this.aiProviderService.findOneById(dto.providerId);
+        if (!provider) {
+            throw HttpErrorFactory.business("AI供应商不存在");
+        }
+
+        if (dto.modelType && !provider.supportedModelTypes.includes(dto.modelType as never)) {
+            throw HttpErrorFactory.business("AI供应商不支持该模型类型");
+        }
+
+        return await this.aiModelService.batchCreateModels(dto);
     }
 
     /**

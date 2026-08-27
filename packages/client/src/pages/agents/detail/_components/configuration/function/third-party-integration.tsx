@@ -5,11 +5,11 @@ import { Switch } from "@buildingai/ui/components/ui/switch";
 import { memo, useCallback, useMemo } from "react";
 
 type ThirdPartyIntegrationValue = ThirdPartyIntegrationConfig & {
-  provider?: "coze" | "dify";
+  provider?: "coze" | "dify" | "ragflow";
 };
 
 type ThirdPartyIntegrationProps = {
-  mode: "coze" | "dify";
+  mode: "coze" | "dify" | "ragflow";
   value: ThirdPartyIntegrationValue | null;
   onChange: (value: ThirdPartyIntegrationValue | null) => void;
 };
@@ -31,7 +31,8 @@ export const ThirdPartyIntegration = memo(
 
     const update = useCallback(
       (patch: Partial<ThirdPartyIntegrationValue>) => {
-        const botId = mode === "coze" ? (patch.appId ?? config.appId ?? "").trim() : undefined;
+        const botId =
+          mode === "coze" ? (patch.appId ?? config.appId ?? "").trim() : undefined;
         const next: ThirdPartyIntegrationValue = {
           ...config,
           ...patch,
@@ -44,21 +45,28 @@ export const ThirdPartyIntegration = memo(
           },
         };
 
-        const isEmpty =
-          mode === "coze"
-            ? !next.appId && !next.apiKey && !next.baseURL
-            : !next.apiKey && !next.baseURL;
+        const requireAppId = mode === "coze" || mode === "ragflow";
+        const isEmpty = requireAppId
+          ? !next.appId && !next.apiKey && !next.baseURL
+          : !next.apiKey && !next.baseURL;
 
         onChange(isEmpty ? null : next);
       },
       [config, mode, onChange],
     );
 
-    const title = mode === "coze" ? "Coze 平台配置" : "Dify 平台配置";
+    const title =
+      mode === "ragflow"
+        ? "RagFlow 平台配置"
+        : mode === "coze"
+          ? "Coze 平台配置"
+          : "Dify 平台配置";
     const description =
-      mode === "coze"
-        ? "配置 Coze Bot 相关参数，系统会从 Coze 获取智能体能力。"
-        : "配置 Dify 应用相关参数，系统会通过 Dify 提供智能体能力。";
+      mode === "ragflow"
+        ? "配置 RagFlow 聊天助手相关参数，系统会通过 RagFlow 提供智能体能力，并按平台用户隔离会话。"
+        : mode === "coze"
+          ? "配置 Coze Bot 相关参数，系统会从 Coze 获取智能体能力。"
+          : "配置 Dify 应用相关参数，系统会通过 Dify 提供智能体能力。";
 
     return (
       <div className="bg-secondary rounded-lg px-3 py-2.5">
@@ -72,9 +80,11 @@ export const ThirdPartyIntegration = memo(
             <Label className="text-xs">BASE URL</Label>
             <Input
               placeholder={
-                mode === "coze"
-                  ? "留空默认使用 Coze 官方地址，例如：https://api.coze.cn"
-                  : "例如：https://api.dify.ai 或自定义网关地址"
+                mode === "ragflow"
+                  ? "例如：http://10.30.x.x:9380（RagFlow 服务地址）"
+                  : mode === "coze"
+                    ? "留空默认使用 Coze 官方地址，例如：https://api.coze.cn"
+                    : "例如：https://api.dify.ai 或自定义网关地址"
               }
               value={config.baseURL ?? ""}
               className="bg-background"
@@ -82,13 +92,14 @@ export const ThirdPartyIntegration = memo(
             />
           </div>
 
-          {mode === "coze" && (
+          {(mode === "coze" || mode === "ragflow") && (
             <div className="space-y-1.5">
               <Label className="text-xs">
-                Bot ID<span className="text-destructive ml-0.5">*</span>
+                {mode === "coze" ? "Bot ID" : "Chat ID"}
+                <span className="text-destructive ml-0.5">*</span>
               </Label>
               <Input
-                placeholder="请输入 Coze Bot ID"
+                placeholder={mode === "coze" ? "请输入 Coze Bot ID" : "请输入 RagFlow 聊天助手 ID"}
                 value={config.appId ?? ""}
                 className="bg-background"
                 onChange={(e) => update({ appId: e.target.value.trim() })}

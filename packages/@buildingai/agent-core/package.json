@@ -1,0 +1,41 @@
+{
+    "name": "@buildingai/agent-core",
+    "version": "0.0.0",
+    "private": true,
+    "license": "Apache-2.0",
+    "description": "桌面客户端 Node sidecar：Pi 引擎宿主、策略引擎、执行层、审计采集器（stdio JSON-RPC 对外）",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "clean": "rimraf dist .turbo dist/build.tsbuildinfo",
+        "check-types": "tsc --noEmit",
+        "build": "rimraf dist && tsc -p tsconfig.build.json",
+        "dev": "tsc -p tsconfig.build.json --watch",
+        "lint": "eslint . --quiet",
+        "lint:fix": "eslint . --fix",
+        "smoke": "node scripts/smoke.mjs",
+        "smoke:engine": "node scripts/smoke-engine.mjs"
+    },
+    "dependencies": {
+        "@earendil-works/pi-ai": "0.82.0",
+        "@earendil-works/pi-coding-agent": "^0.82.0",
+        "dotenv": "catalog:",
+        "typebox": "^1.0.9"
+    },
+    "devDependencies": {
+        "@buildingai/eslint-config": "workspace:*",
+        "@buildingai/typescript-config": "workspace:*",
+        "@types/node": "catalog:dev"
+    },
+    "engines": {
+        "node": ">=22"
+    }
+}

@@ -19,10 +19,10 @@ import { Label } from "@buildingai/ui/components/ui/label";
 import { Textarea } from "@buildingai/ui/components/ui/textarea";
 import { UploadDropzone, UploadRoot, UploadTrigger } from "@buildingai/ui/components/upload";
 import { cn } from "@buildingai/ui/lib/utils";
-import { ChevronsLeftRight, Loader2, Pencil, UploadIcon, X } from "lucide-react";
+import { ChevronsLeftRight, Database, Loader2, Pencil, UploadIcon, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-export type CreationMethod = "direct" | "coze" | "dify";
+export type CreationMethod = "direct" | "coze" | "dify" | "ragflow";
 
 export interface AgentEditFormValues {
   name: string;
@@ -71,12 +71,22 @@ const creationMethods: {
     description: "从第三方平台导入智能体",
     icon: <SvgIcons.dify className="size-4" />,
   },
+  {
+    value: "ragflow",
+    label: "RagFlow智能体",
+    description: "从第三方平台导入智能体",
+    icon: <Database className="size-4" />,
+  },
 ];
 
-const creationMethodConfigKeyMap: Record<CreationMethod, "direct" | "coze" | "dify"> = {
+const creationMethodConfigKeyMap: Record<
+  CreationMethod,
+  "direct" | "coze" | "dify" | "ragflow"
+> = {
   direct: "direct",
   coze: "coze",
   dify: "dify",
+  ragflow: "ragflow",
 };
 
 export function AgentModal({

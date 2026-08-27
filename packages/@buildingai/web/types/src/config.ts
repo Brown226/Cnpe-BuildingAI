@@ -43,6 +43,8 @@ export interface WebsiteConfig {
         cdk: boolean;
         /** 充值功能开关：false 时隐藏用户端钱包/充值入口（企业免费模式） */
         recharge: boolean;
+        /** 计费总开关：false 时为企业免费模式，前端隐藏积分/价格/会员锁等商业痕迹 */
+        billingEnabled: boolean;
     };
     cdk?: {
         notice: string;

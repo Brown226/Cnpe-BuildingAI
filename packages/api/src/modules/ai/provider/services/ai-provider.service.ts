@@ -1,11 +1,18 @@
 import { BaseService, FieldFilterOptions } from "@buildingai/base";
-import { AI_DEFAULT_MODEL } from "@buildingai/constants";
+import {
+    SecretService,
+    SecretTemplateService,
+    type CreateSecretDto,
+    type CreateSecretTemplateDto,
+} from "@buildingai/core";
+import { AI_DEFAULT_MODEL, BooleanNumber } from "@buildingai/constants";
 import { InjectRepository } from "@buildingai/db/@nestjs/typeorm";
 import { AiProvider } from "@buildingai/db/entities";
 import { Like, Repository } from "@buildingai/db/typeorm";
 import { DictService } from "@buildingai/dict";
 import { HttpErrorFactory } from "@buildingai/errors";
 import { CreateAiProviderDto, UpdateAiProviderDto } from "@modules/ai/provider/dto/ai-provider.dto";
+import { CreateQuickAiProviderDto } from "@modules/ai/provider/dto/quick-create-ai-provider.dto";
 import { Injectable } from "@nestjs/common";
 
 /**
@@ -19,8 +26,87 @@ export class AiProviderService extends BaseService<AiProvider> {
         @InjectRepository(AiProvider)
         private readonly aiProviderRepository: Repository<AiProvider>,
         private readonly dictService: DictService,
+        private readonly secretService: SecretService,
+        private readonly secretTemplateService: SecretTemplateService,
     ) {
         super(aiProviderRepository);
+    }
+
+    /**
+     * 快捷创建AI供应商（OpenAI 兼容场景）
+     *
+     * 自动完成：找/建「快捷-{provider}」密钥模板 → 复用或新建密钥并加密托管 → 创建厂商并绑定，
+     * 全程幂等（可重复调用不产生重复模板/密钥）；使用者无需感知模板/密钥概念。
+     */
+    async quickCreateProvider(dto: CreateQuickAiProviderDto): Promise<Partial<AiProvider>> {
+        // 供应商标识唯一性校验（与 createProvider 一致）
+        const existingProvider = await this.findOne({
+            where: { provider: dto.provider },
+        });
+
+        if (existingProvider) {
+            throw HttpErrorFactory.badRequest(`供应商标识 '${dto.provider}' 已存在`);
+        }
+
+        // 1. 找/建快捷密钥模板（字段固定为 apiKey / baseUrl，与 ai-sdk 运行时消费约定一致）
+        const templateName = `快捷-${dto.provider}`;
+        let template = await this.secretTemplateService.findOne({
+            where: { name: templateName },
+        });
+
+        if (!template) {
+            try {
+                template = await this.secretTemplateService.create({
+                    name: templateName,
+                    fieldConfig: [
+                        { name: "apiKey", required: true, placeholder: "API Key" },
+                        { name: "baseUrl", required: false, placeholder: "https://api.openai.com/v1" },
+                    ],
+                    isEnabled: BooleanNumber.YES,
+                    sortOrder: 0,
+                } as CreateSecretTemplateDto);
+            } catch (error) {
+                // 并发下模板已存在则复用
+                template = await this.secretTemplateService.findOne({
+                    where: { name: templateName },
+                });
+                if (!template) throw error;
+                this.logger.warn(`快捷模板创建冲突，复用已有模板: ${templateName}`);
+            }
+        }
+
+        // 2. 快捷模板下复用或新建密钥（同名复用，避免重复密钥垃圾）
+        const secretName = `${dto.provider} 密钥`;
+        let secret;
+        try {
+            secret = await this.secretService.create({
+                name: secretName,
+                templateId: template.id,
+                fieldValues: [
+                    { name: "apiKey", value: dto.apiKey },
+                    { name: "baseUrl", value: dto.baseUrl ?? "" },
+                ],
+                status: BooleanNumber.YES,
+            } as CreateSecretDto);
+        } catch (error) {
+            secret = await this.secretService.findOne({
+                where: { templateId: template.id, name: secretName },
+            });
+            if (!secret) throw error;
+            this.logger.warn(`快捷密钥创建冲突，复用已有密钥: ${secretName}`);
+        }
+
+        // 3. 创建厂商并绑定密钥
+        return await this.createProvider({
+            provider: dto.provider,
+            name: dto.name,
+            description: undefined,
+            bindSecretId: secret.id,
+            supportedModelTypes: dto.supportedModelTypes,
+            iconUrl: dto.iconUrl,
+            isActive: dto.isActive,
+            sortOrder: dto.sortOrder ?? 0,
+        });
     }
 
     /**

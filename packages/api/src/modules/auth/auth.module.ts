@@ -13,6 +13,7 @@ import {
 } from "@buildingai/db/entities";
 import { AuthService } from "@common/modules/auth/services/auth.service";
 import { AdAuthService } from "@common/modules/auth/services/ad-auth.service";
+import { AdSyncService } from "@common/modules/auth/services/ad-sync.service";
 import { ExtensionFeatureService } from "@common/modules/auth/services/extension-feature.service";
 import { ExtensionFeatureScanService } from "@common/modules/auth/services/extension-feature-scan.service";
 import { RolePermissionService } from "@common/modules/auth/services/role-permission.service";
@@ -63,6 +64,7 @@ import { AuthWebController } from "./controller/web/auth.controller";
     providers: [
         AuthService,
         AdAuthService,
+        AdSyncService,
         ExtensionFeatureScanService,
         ExtensionFeatureService,
         RolePermissionService,
@@ -72,6 +74,7 @@ import { AuthWebController } from "./controller/web/auth.controller";
     exports: [
         AuthService,
         AdAuthService,
+        AdSyncService,
         ExtensionFeatureScanService,
         ExtensionFeatureService,
         JwtModule,

@@ -38,6 +38,8 @@ import { existsSync } from "fs";
 import { join } from "path";
 
 import { AiModule } from "./ai/ai.module";
+import { GatewayModule } from "./gateway/gateway.module";
+import { DesktopModule } from "./desktop/desktop.module";
 import { ConfigModule as AppConfigModule } from "./config/config.module";
 import { DecorateModule } from "./decorate/decorate.module";
 import { DepartmentModule } from "./department/department.module";
@@ -102,6 +104,8 @@ export class AppModule {
                 CDKModule, //
                 ChannelModule,
                 AiModule,
+                GatewayModule,
+                DesktopModule,
                 AppConfigModule,
                 DecorateModule,
                 DepartmentModule,

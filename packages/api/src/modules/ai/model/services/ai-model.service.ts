@@ -1,4 +1,5 @@
 import { BaseService, FieldFilterOptions } from "@buildingai/base";
+import type { ModelType } from "@buildingai/ai-sdk";
 import { AI_DEFAULT_MODEL } from "@buildingai/constants";
 import { InjectRepository } from "@buildingai/db/@nestjs/typeorm";
 import { AiModel } from "@buildingai/db/entities";
@@ -7,6 +8,7 @@ import { DictService } from "@buildingai/dict";
 import { HttpErrorFactory } from "@buildingai/errors";
 import { buildWhere } from "@buildingai/utils";
 import {
+    BatchCreateAiModelsDto,
     BatchSortAiModelDto,
     CreateAiModelDto,
     QueryAiModelDto,
@@ -55,6 +57,59 @@ export class AiModelService extends BaseService<AiModel> {
             this.logger.error(`创建AI模型失败: ${error.message}`, error.stack);
             throw HttpErrorFactory.badRequest("Failed to create AI model.");
         }
+    }
+
+    /**
+     * 批量创建AI模型（快捷导入）
+     *
+     * 远程模型 id 列表一键入库：默认名称为模型 id、类型统一指定（默认 llm）、
+     * 已存在的模型自动跳过（幂等）。
+     *
+     * @param dto 批量创建DTO
+     * @returns 创建/跳过数量统计
+     */
+    async batchCreateModels(dto: BatchCreateAiModelsDto): Promise<{ created: number; skipped: number }> {
+        let created = 0;
+        let skipped = 0;
+
+        for (const item of dto.models) {
+            const existed = await this.findOne({
+                where: { providerId: dto.providerId, model: item.id },
+            });
+
+            if (existed) {
+                skipped++;
+                continue;
+            }
+
+            try {
+                await this.createModel({
+                    name: item.id,
+                    model: item.id,
+                    providerId: dto.providerId,
+                    modelType: dto.modelType.toLowerCase() as ModelType,
+                    maxContext: 3,
+                    maxOutput: 4096,
+                    features: [],
+                    billingRule: { power: 0, tokens: 1000 },
+                    membershipLevel: [],
+                    isActive: true,
+                    thinking: false,
+                    enableThinkingParam: false,
+                    isDefault: false,
+                    description: undefined,
+                    sortOrder: 0,
+                });
+                created++;
+            } catch (error) {
+                this.logger.warn(
+                    `批量导入模型失败（跳过）: ${item.id}, error=${error instanceof Error ? error.message : String(error)}`,
+                );
+                skipped++;
+            }
+        }
+
+        return { created, skipped };
     }
 
     /**

@@ -24,7 +24,15 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { UpgradeDialog } from "./upgrade-dialog";
 
-export function UserButton({ isLoggedIn, userInfo }: { isLoggedIn: boolean; userInfo?: any }) {
+export function UserButton({
+  isLoggedIn,
+  userInfo,
+  billingEnabled = true,
+}: {
+  isLoggedIn: boolean;
+  userInfo?: any;
+  billingEnabled?: boolean;
+}) {
   return (
     <>
       <Avatar className="h-8 w-8 rounded-lg after:rounded-lg">
@@ -39,10 +47,14 @@ export function UserButton({ isLoggedIn, userInfo }: { isLoggedIn: boolean; user
         <span className="truncate font-medium">{userInfo?.nickname || "未登录"}</span>
         <span className="text-muted-foreground truncate text-xs">
           {isLoggedIn ? (
-            <div className="flex items-center gap-0.5">
-              <Zap className="size-3!" />
-              <span className="">{userInfo?.power || "0"}</span>
-            </div>
+            billingEnabled ? (
+              <div className="flex items-center gap-0.5">
+                <Zap className="size-3!" />
+                <span className="">{userInfo?.power || "0"}</span>
+              </div>
+            ) : (
+              userInfo?.isRoot ? "超级管理员" : userInfo?.role?.name || "未设置角色"
+            )
           ) : (
             "请先登录后使用"
           )}
@@ -64,10 +76,12 @@ export function DefaultNavUser() {
   const { confirm } = useAlertDialog();
   const settingsDialog = useSettingsDialog();
   const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
-  const { data: rechargeCenter } = useRechargeCenterQuery();
 
   const isLoggedIn = isLogin();
   const membershipEnabled = websiteConfig?.features?.membership ?? false;
+  const billingEnabled = websiteConfig?.features?.billingEnabled ?? false;
+  // 企业免费模式下充值接口已被路由拦截，不再发起查询（避免跨域/404 噪音）
+  const { data: rechargeCenter } = useRechargeCenterQuery({ enabled: billingEnabled });
   const rechargeEnabled = rechargeCenter?.rechargeStatus ?? false;
 
   if (!isLoggedIn) {
@@ -78,7 +92,7 @@ export function DefaultNavUser() {
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" asChild>
             <Link to={`/login?redirect=${redirect}`} state={{ redirect: location.pathname }}>
-              <UserButton isLoggedIn={false} />
+              <UserButton isLoggedIn={false} billingEnabled={billingEnabled} />
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -95,7 +109,7 @@ export function DefaultNavUser() {
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground overflow-visible"
             >
-              <UserButton isLoggedIn={true} userInfo={userInfo} />
+              <UserButton isLoggedIn={true} userInfo={userInfo} billingEnabled={billingEnabled} />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -134,11 +148,15 @@ export function DefaultNavUser() {
                       <div className="flex items-center gap-0.5">
                         {membershipEnabled ? (
                           userInfo?.membershipLevel?.name || "未订阅会员"
-                        ) : (
+                        ) : billingEnabled ? (
                           <div className="flex items-center gap-0.5">
                             <Zap className="size-3!" />
                             <span className="">{userInfo?.power || "0"}</span>
                           </div>
+                        ) : (
+                          userInfo?.isRoot
+                            ? "超级管理员"
+                            : userInfo?.role?.name || "未设置角色"
                         )}
                       </div>
                     ) : (
@@ -160,7 +178,7 @@ export function DefaultNavUser() {
                   会员订阅
                 </DropdownMenuItem>
               )}
-              {rechargeEnabled && (
+              {rechargeEnabled && billingEnabled && (
                 <DropdownMenuItem
                   onSelect={() => {
                     settingsDialog.open("wallet");

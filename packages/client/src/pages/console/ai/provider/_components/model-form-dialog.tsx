@@ -4,6 +4,7 @@ import {
   type ModelFeatureType,
 } from "@buildingai/ai-sdk/interfaces";
 import { MODEL_TYPE_DESCRIPTIONS, type ModelType } from "@buildingai/ai-sdk/interfaces";
+import { detectModelFeatures, detectModelSpecs, detectThinkingConfig } from "../_utils/model-feature-detect";
 import {
   type AiProviderModel,
   type AiProviderRemoteModelItem,
@@ -13,6 +14,7 @@ import {
   useMembershipLevelListQuery,
   useUpdateAiModelMutation,
 } from "@buildingai/services/console";
+import { useConfigStore } from "@buildingai/stores";
 import { Button } from "@buildingai/ui/components/ui/button";
 import {
   Combobox,
@@ -76,7 +78,7 @@ import {
   Workflow,
   Wrench,
 } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -111,7 +113,8 @@ const formSchema = z.object({
     .min(1, "模型标识符不能为空")
     .max(100, "模型标识符长度不能超过100个字符"),
   modelType: z.string({ message: "模型类型必须选择" }),
-  maxContext: z.number().int().min(1, "最大上下文条数不能小于 1").optional(),
+  maxContext: z.number().int().min(1, "最大上下文不能小于 1").optional(),
+  maxOutput: z.number().int().min(1, "最大输出不能小于 1").optional(),
   features: z.array(z.string()).optional().default([]),
   billingRule: billingRuleSchema,
   membershipLevel: z.array(z.string()).optional(),
@@ -120,7 +123,6 @@ const formSchema = z.object({
   enableThinkingParam: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   description: z.string().max(500, "模型描述长度不能超过500个字符").optional(),
-  sortOrder: z.number().int().min(0, "排序权重不能小于0").optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -146,13 +148,22 @@ export const AiModelFormDialog = ({
   const isEditMode = !!model;
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [useCustomModel, setUseCustomModel] = useState(false);
+  // 用户手动增删过“模型能力”后停止自动覆盖；创建模式下按模型标识符自动预填
+  const featuresEdited = useRef(false);
+  // 用户手动切换深度思考相关开关后停止自动覆盖
+  const thinkingEdited = useRef(false);
+  // 用户手动修改最大上下文/最大输出后停止自动覆盖
+  const specsEdited = useRef(false);
+  // 企业免费模式（计费关闭）下隐藏计费规则与会员限制字段，也不请求会员等级接口
+  const billingEnabled =
+    useConfigStore((state) => state.config)?.websiteConfig?.features?.billingEnabled ?? false;
 
   const { data: membershipLevels } = useMembershipLevelListQuery(
     {
       pageSize: 100,
       status: "true",
     },
-    { enabled: open },
+    { enabled: open && billingEnabled },
   );
 
   const form = useForm<FormValues>({
@@ -170,12 +181,16 @@ export const AiModelFormDialog = ({
       enableThinkingParam: false,
       isDefault: false,
       description: "",
-      sortOrder: 0,
+      maxOutput: 4096,
     },
   });
 
   useEffect(() => {
     if (open) {
+      // 编辑模式以已存配置为准，创建模式启用自动识别
+      featuresEdited.current = isEditMode;
+      thinkingEdited.current = isEditMode;
+      specsEdited.current = isEditMode;
       if (model) {
         form.reset({
           name: model.name,
@@ -190,7 +205,7 @@ export const AiModelFormDialog = ({
           enableThinkingParam: model.enableThinkingParam || false,
           isDefault: false,
           description: model.description || "",
-          sortOrder: model.sortOrder,
+          maxOutput: model.maxOutput ?? undefined,
         });
       } else {
         form.reset({
@@ -206,11 +221,33 @@ export const AiModelFormDialog = ({
           enableThinkingParam: false,
           isDefault: false,
           description: "",
-          sortOrder: 0,
+          maxOutput: 4096,
         });
       }
     }
   }, [open, model, form]);
+
+  const watchedModel = form.watch("model");
+  const watchedModelType = form.watch("modelType");
+
+  // 创建模式下：模型标识符/类型变化时按命名约定自动识别并预填“模型能力”与深度思考开关
+  useEffect(() => {
+    const id = form.getValues("model")?.trim();
+    if (!id) return;
+    if (!featuresEdited.current) {
+      form.setValue("features", detectModelFeatures(id, form.getValues("modelType")));
+    }
+    if (!thinkingEdited.current) {
+      const thinking = detectThinkingConfig(id, form.getValues("modelType"));
+      form.setValue("thinking", thinking.thinking);
+      form.setValue("enableThinkingParam", thinking.enableThinkingParam);
+    }
+    if (!specsEdited.current) {
+      const specs = detectModelSpecs(id);
+      if (specs.maxContext !== undefined) form.setValue("maxContext", specs.maxContext);
+      if (specs.maxOutput !== undefined) form.setValue("maxOutput", specs.maxOutput);
+    }
+  }, [watchedModel, watchedModelType, form]);
 
   const createMutation = useCreateAiModelMutation({
     onSuccess: () => {
@@ -243,15 +280,16 @@ export const AiModelFormDialog = ({
       model: values.model,
       modelType: values.modelType.toLowerCase() as ModelType,
       maxContext: values.maxContext,
+      maxOutput: values.maxOutput,
       features: values.features,
-      billingRule: values.billingRule,
-      membershipLevel: values.membershipLevel,
+      // 企业免费模式下不采集计费/会员配置，送中性默认值
+      billingRule: billingEnabled ? values.billingRule : { power: 0, tokens: 1000 },
+      membershipLevel: billingEnabled ? values.membershipLevel : [],
       isActive: values.isActive,
       thinking: values.thinking,
       enableThinkingParam: values.enableThinkingParam,
       isDefault: values.isDefault,
       description: values.description || undefined,
-      sortOrder: values.sortOrder,
     };
 
     if (isEditMode && model) {
@@ -359,7 +397,7 @@ export const AiModelFormDialog = ({
                       <SelectContent>
                         {MODEL_TYPES.map((type) => (
                           <SelectItem key={type} value={type}>
-                            {MODEL_TYPE_DESCRIPTIONS[type].nameEn}
+                            {MODEL_TYPE_DESCRIPTIONS[type].name}
                             <span className="text-muted-foreground ml-1 text-xs">
                               ({MODEL_TYPE_DESCRIPTIONS[type].description})
                             </span>
@@ -391,91 +429,95 @@ export const AiModelFormDialog = ({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="billingRule.power"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>计费规则</FormLabel>
-                    <FormControl>
-                      <InputGroup>
-                        <InputGroupInput
-                          type="number"
-                          min={0}
-                          placeholder="请输入模型计费"
-                          className="pl-3!"
-                          value={field.value ?? ""}
-                          onBlur={field.onBlur}
-                          ref={field.ref}
-                          onChange={(e) =>
-                            field.onChange(
-                              e.target.value === "" ? undefined : Number(e.target.value),
-                            )
-                          }
-                        />
-                        <InputGroupAddon align="inline-end">
-                          <InputGroupText>积分 / 1000 Tokens</InputGroupText>
-                        </InputGroupAddon>
-                      </InputGroup>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {billingEnabled && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="billingRule.power"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>计费规则</FormLabel>
+                        <FormControl>
+                          <InputGroup>
+                            <InputGroupInput
+                              type="number"
+                              min={0}
+                              placeholder="请输入模型计费"
+                              className="pl-3!"
+                              value={field.value ?? ""}
+                              onBlur={field.onBlur}
+                              ref={field.ref}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === "" ? undefined : Number(e.target.value),
+                                )
+                              }
+                            />
+                            <InputGroupAddon align="inline-end">
+                              <InputGroupText>积分 / 1000 Tokens</InputGroupText>
+                            </InputGroupAddon>
+                          </InputGroup>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              <FormField
-                control={form.control}
-                name="membershipLevel"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>指定会员可用</FormLabel>
-                    <FormControl>
-                      <Combobox
-                        multiple
-                        autoHighlight
-                        items={membershipLevels?.items || []}
-                        value={field.value || []}
-                        onValueChange={field.onChange}
-                      >
-                        <ComboboxChips ref={membershipAnchor} className="min-h-9 w-full">
-                          <ComboboxValue>
-                            {(values: string[]) => (
-                              <React.Fragment>
-                                {values.length === 0 && (
-                                  <ComboboxChipsInput placeholder="选择会员等级（可选）" />
+                  <FormField
+                    control={form.control}
+                    name="membershipLevel"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>指定会员可用</FormLabel>
+                        <FormControl>
+                          <Combobox
+                            multiple
+                            autoHighlight
+                            items={membershipLevels?.items || []}
+                            value={field.value || []}
+                            onValueChange={field.onChange}
+                          >
+                            <ComboboxChips ref={membershipAnchor} className="min-h-9 w-full">
+                              <ComboboxValue>
+                                {(values: string[]) => (
+                                  <React.Fragment>
+                                    {values.length === 0 && (
+                                      <ComboboxChipsInput placeholder="选择会员等级（可选）" />
+                                    )}
+                                    {values.map((value: string) => (
+                                      <ComboboxChip key={value}>
+                                        {membershipLevels?.items?.find((item) => item.id === value)
+                                          ?.name || value}
+                                      </ComboboxChip>
+                                    ))}
+                                    {values.length > 0 && (
+                                      <ComboboxChipsInput placeholder="继续选择会员" />
+                                    )}
+                                  </React.Fragment>
                                 )}
-                                {values.map((value: string) => (
-                                  <ComboboxChip key={value}>
-                                    {membershipLevels?.items?.find((item) => item.id === value)
-                                      ?.name || value}
-                                  </ComboboxChip>
-                                ))}
-                                {values.length > 0 && (
-                                  <ComboboxChipsInput placeholder="继续选择会员" />
+                              </ComboboxValue>
+                            </ComboboxChips>
+                            <ComboboxContent anchor={membershipAnchor} container={container}>
+                              <ComboboxEmpty>未找到匹配的会员等级</ComboboxEmpty>
+                              <ComboboxList>
+                                {(item: any) => (
+                                  <ComboboxItem key={item.id} value={item.id}>
+                                    {item.name}
+                                  </ComboboxItem>
                                 )}
-                              </React.Fragment>
-                            )}
-                          </ComboboxValue>
-                        </ComboboxChips>
-                        <ComboboxContent anchor={membershipAnchor} container={container}>
-                          <ComboboxEmpty>未找到匹配的会员等级</ComboboxEmpty>
-                          <ComboboxList>
-                            {(item: any) => (
-                              <ComboboxItem key={item.id} value={item.id}>
-                                {item.name}
-                              </ComboboxItem>
-                            )}
-                          </ComboboxList>
-                        </ComboboxContent>
-                      </Combobox>
-                    </FormControl>
-                    <FormDescription>
-                      选择会员等级，该模型将只对指定会员可用。不选择则对所有用户可用
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                              </ComboboxList>
+                            </ComboboxContent>
+                          </Combobox>
+                        </FormControl>
+                        <FormDescription>
+                          选择会员等级，该模型将只对指定会员可用。不选择则对所有用户可用
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
 
               <FormField
                 control={form.control}
@@ -485,12 +527,15 @@ export const AiModelFormDialog = ({
                     <FormLabel>模型能力</FormLabel>
                     <FormControl>
                       <Combobox
-                        multiple
-                        autoHighlight
-                        items={FEATURE_TYPES}
-                        value={field.value || []}
-                        onValueChange={field.onChange}
-                      >
+                      multiple
+                      autoHighlight
+                      items={FEATURE_TYPES}
+                      value={field.value || []}
+                      onValueChange={(values: string[]) => {
+                        featuresEdited.current = true;
+                        field.onChange(values);
+                      }}
+                    >
                         <ComboboxChips ref={featureAnchor} className="min-h-9 w-full">
                           <ComboboxValue>
                             {(values: string[]) => (
@@ -501,7 +546,7 @@ export const AiModelFormDialog = ({
                                     <ComboboxChip key={value}>
                                       {Icon && <Icon className="size-3" />}
                                       {MODEL_FEATURE_DESCRIPTIONS[value as ModelFeatureType]
-                                        ?.label || value}
+                                        ?.name || value}
                                     </ComboboxChip>
                                   );
                                 })}
@@ -518,7 +563,7 @@ export const AiModelFormDialog = ({
                               return (
                                 <ComboboxItem key={item} value={item}>
                                   {Icon && <Icon className="size-4" />}
-                                  {MODEL_FEATURE_DESCRIPTIONS[item as ModelFeatureType]?.label ||
+                                  {MODEL_FEATURE_DESCRIPTIONS[item as ModelFeatureType]?.name ||
                                     item}
                                 </ComboboxItem>
                               );
@@ -527,6 +572,11 @@ export const AiModelFormDialog = ({
                         </ComboboxContent>
                       </Combobox>
                     </FormControl>
+                    <FormDescription>
+                      {isEditMode
+                        ? "可手动增删调整"
+                        : "输入模型标识符后自动识别能力，可手动增删调整"}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -538,14 +588,17 @@ export const AiModelFormDialog = ({
                   name="maxContext"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>最大上下文条数</FormLabel>
+                      <FormLabel>最大上下文</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
                           min={1}
-                          placeholder="3"
+                          placeholder="128000"
                           {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
+                          onChange={(e) => {
+                            specsEdited.current = true;
+                            field.onChange(Number(e.target.value));
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
@@ -555,17 +608,20 @@ export const AiModelFormDialog = ({
 
                 <FormField
                   control={form.control}
-                  name="sortOrder"
+                  name="maxOutput"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>排序权重</FormLabel>
+                      <FormLabel>最大输出</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
-                          min={0}
-                          placeholder="0"
+                          min={1}
+                          placeholder="4096"
                           {...field}
-                          onChange={(e) => field.onChange(Number(e.target.value))}
+                          onChange={(e) => {
+                            specsEdited.current = true;
+                            field.onChange(Number(e.target.value));
+                          }}
                         />
                       </FormControl>
                       <FormMessage />
@@ -594,7 +650,13 @@ export const AiModelFormDialog = ({
                   render={({ field }) => (
                     <FormItem className="flex items-center gap-2">
                       <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            thinkingEdited.current = true;
+                            field.onChange(checked);
+                          }}
+                        />
                       </FormControl>
                       <FormLabel className="mt-0!">允许深度思考</FormLabel>
                     </FormItem>
@@ -607,7 +669,13 @@ export const AiModelFormDialog = ({
                   render={({ field }) => (
                     <FormItem className="flex items-center gap-2">
                       <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            thinkingEdited.current = true;
+                            field.onChange(checked);
+                          }}
+                        />
                       </FormControl>
                       <FormLabel className="mt-0!">传递思考参数</FormLabel>
                     </FormItem>

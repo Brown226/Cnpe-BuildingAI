@@ -32,6 +32,7 @@ export type AiProviderModel = {
     providerId: string;
     features: string[];
     maxContext: number;
+    maxOutput?: number;
     modelConfig: ModelConfig[];
     isActive: boolean;
     thinking: boolean;
@@ -259,6 +260,7 @@ export type CreateAiModelDto = {
     providerId: string;
     model: string;
     maxContext?: number;
+    maxOutput?: number;
     features?: string[];
     modelType?: ModelType;
     modelConfig?: ModelConfig[];
@@ -307,6 +309,54 @@ export function useDeleteAiModelMutation(
 ) {
     return useMutation<{ message: string }, Error, string>({
         mutationFn: (id) => consoleHttpClient.delete<{ message: string }>(`/ai-models/${id}`),
+        ...options,
+    });
+}
+
+/**
+ * 快捷创建AI供应商（OpenAI 兼容场景：Base URL + API Key，系统自动建模板/密钥并绑定）
+ */
+export type CreateQuickAiProviderDto = {
+    provider: string;
+    name: string;
+    baseUrl?: string;
+    apiKey: string;
+    iconUrl?: string;
+    supportedModelTypes?: string[];
+    isActive?: boolean;
+    sortOrder?: number;
+};
+
+export function useQuickCreateAiProviderMutation(
+    options?: MutationOptionsUtil<AiProvider, CreateQuickAiProviderDto>,
+) {
+    return useMutation<AiProvider, Error, CreateQuickAiProviderDto>({
+        mutationFn: (dto) =>
+            consoleHttpClient.post<AiProvider>("/ai-providers/quick-create", dto),
+        ...options,
+    });
+}
+
+/**
+ * 批量创建AI模型（远程模型快捷导入）
+ */
+export type BatchCreateAiModelsParams = {
+    providerId: string;
+    modelType?: string;
+    models: { id: string }[];
+};
+
+export type BatchCreateAiModelsResult = {
+    created: number;
+    skipped: number;
+};
+
+export function useBatchCreateAiModelsMutation(
+    options?: MutationOptionsUtil<BatchCreateAiModelsResult, BatchCreateAiModelsParams>,
+) {
+    return useMutation<BatchCreateAiModelsResult, Error, BatchCreateAiModelsParams>({
+        mutationFn: (dto) =>
+            consoleHttpClient.post<BatchCreateAiModelsResult>("/ai-models/batch", dto),
         ...options,
     });
 }

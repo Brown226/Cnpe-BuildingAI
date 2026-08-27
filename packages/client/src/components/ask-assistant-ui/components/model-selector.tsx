@@ -1,7 +1,7 @@
 import { MODEL_FEATURE_DESCRIPTIONS, MODEL_FEATURES } from "@buildingai/ai-sdk/interfaces";
 import { useMembershipLevelsQuery } from "@buildingai/services/web";
 import { useAiProvidersQuery } from "@buildingai/services/web";
-import { useAuthStore } from "@buildingai/stores";
+import { useAuthStore, useConfigStore } from "@buildingai/stores";
 import {
   ModelSelector as AIModelSelector,
   ModelSelectorContent as AIModelSelectorContent,
@@ -101,6 +101,8 @@ interface ModelRowItemProps {
   isDisabled: boolean;
   onSelect: (modelId: string) => void;
   membershipLevels?: { id: string; name: string }[];
+  /** 计费关闭（企业免费模式）时不展示积分价格与会员锁 */
+  showPricing?: boolean;
 }
 
 const ModelRowItem = ({
@@ -109,6 +111,7 @@ const ModelRowItem = ({
   isDisabled,
   onSelect,
   membershipLevels,
+  showPricing = true,
 }: ModelRowItemProps) => {
   const features = model.features ?? [];
   const powerText = model.billingRule?.power
@@ -131,9 +134,11 @@ const ModelRowItem = ({
       <ProviderIcon provider={model.chefSlug} iconUrl={model.iconUrl} />
       <AIModelSelectorName className="flex items-center">
         <span className="truncate text-left">{model.name}</span>
-        <Badge variant="secondary" className="text-muted-foreground ml-1.5 text-xs">
-          {powerText}
-        </Badge>
+        {showPricing && (
+          <Badge variant="secondary" className="text-muted-foreground ml-1.5 text-xs">
+            {powerText}
+          </Badge>
+        )}
       </AIModelSelectorName>
       <div className="ml-auto flex items-center gap-1.5">
         {Object.entries(FEATURE_ICON_MAP).map(([feature, Icon]) =>
@@ -155,7 +160,7 @@ const ModelRowItem = ({
             </Tooltip>
           ) : null,
         )}
-        {isDisabled ? (
+        {isDisabled && showPricing ? (
           <LockIcon aria-label="会员专属" className="text-muted-foreground size-3.5" />
         ) : (
           <CommandShortcut>
@@ -203,13 +208,17 @@ export const ModelSelector = ({
 
   // 获取当前用户的会员等级ID
   const userMembershipLevelId = useAuthStore((state) => state.auth.userInfo?.membershipLevel?.id);
+  // 计费总开关：企业免费模式（billingEnabled=false）下不按会员等级锁模型、不展示积分/价格
+  const billingEnabled = useConfigStore((state) => state.config)?.websiteConfig?.features?.billingEnabled ?? false;
 
   /**
    * 检查模型是否因会员限制而被禁用
    * 如果模型设置了 membershipLevel 且用户会员等级不在允许列表中，则禁用
+   * 企业免费模式（计费关闭）下会员等级限制不生效，所有模型可用
    */
   const isModelDisabledByMembership = useCallback(
     (model: ModelData): boolean => {
+      if (!billingEnabled) return false;
       // 如果模型没有设置会员限制，则所有用户可用
       if (!model.membershipLevel || model.membershipLevel.length === 0) {
         return false;
@@ -220,14 +229,16 @@ export const ModelSelector = ({
       }
       return false;
     },
-    [userMembershipLevelId],
+    [userMembershipLevelId, billingEnabled],
   );
 
   const { data: providers = [], isLoading } = useAiProvidersQuery(
     modelType ? { supportedModelTypes: modelType } : undefined,
     { enabled: Boolean(modelType) },
   );
-  const { data: membershipLevelsData } = useMembershipLevelsQuery({ enabled: true });
+  const { data: membershipLevelsData } = useMembershipLevelsQuery({
+    enabled: billingEnabled,
+  });
   const resolvedModels = useMemo(
     () => (modelType ? convertProvidersToModels(providers) : (models ?? [])),
     [modelType, models, providers],
@@ -375,11 +386,13 @@ export const ModelSelector = ({
             {selectedModel?.name && (
               <AIModelSelectorName className="flex items-center">
                 <span className="truncate text-left">{selectedModel.name}</span>
-                <Badge variant="secondary" className="text-muted-foreground ml-1.5 text-xs">
-                  {selectedModel.billingRule?.power
-                    ? `${selectedModel.billingRule.power} 积分 / 1K Tokens`
-                    : "免费"}
-                </Badge>
+                {billingEnabled && (
+                  <Badge variant="secondary" className="text-muted-foreground ml-1.5 text-xs">
+                    {selectedModel.billingRule?.power
+                      ? `${selectedModel.billingRule.power} 积分 / 1K Tokens`
+                      : "免费"}
+                  </Badge>
+                )}
               </AIModelSelectorName>
             )}
             {!selectedModel?.name && <AIModelSelectorName>{placeholder}</AIModelSelectorName>}
@@ -437,6 +450,7 @@ export const ModelSelector = ({
                         isDisabled={isModelDisabledByMembership(row.model)}
                         onSelect={handleModelSelect}
                         membershipLevels={membershipLevelsData}
+                        showPricing={billingEnabled}
                       />
                     )}
                   </div>

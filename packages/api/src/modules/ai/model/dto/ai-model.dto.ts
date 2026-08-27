@@ -63,6 +63,16 @@ export class CreateAiModelDto {
     maxContext?: number;
 
     /**
+     * 最大输出 Token 数
+     */
+    @IsOptional()
+    @Type(() => Number) // 确保转换为 Number
+    @IsInt({ message: "最大输出必须是整数" })
+    @Min(1, { message: "最大输出不能小于 1" })
+    @Transform(({ value }) => (value === undefined ? 4096 : value))
+    maxOutput?: number;
+
+    /**
      * 模型能力
      */
     @IsArray({ message: "模型能力必须是数组" })
@@ -256,4 +266,45 @@ export class BatchSortAiModelDto {
     @IsString({ each: true, message: "模型ID必须是字符串" })
     @IsNotEmpty({ each: true, message: "模型ID不能为空" })
     sort: string[];
+}
+
+/**
+ * 批量创建AI模型单项DTO（快捷导入场景，仅需模型标识）
+ */
+export class BatchCreateAiModelItemDto {
+    /**
+     * 模型标识（远程模型 id）
+     */
+    @IsString({ message: "模型标识必须是字符串" })
+    @IsNotEmpty({ message: "模型标识不能为空" })
+    @MaxLength(100, { message: "模型标识长度不能超过100个字符" })
+    id: string;
+}
+
+/**
+ * 批量创建AI模型DTO
+ */
+export class BatchCreateAiModelsDto {
+    /**
+     * 所属供应商ID
+     */
+    @IsString({ message: "供应商ID必须是字符串" })
+    @IsNotEmpty({ message: "供应商ID不能为空" })
+    providerId: string;
+
+    /**
+     * 统一模型类型（默认 llm，可指定 text-embedding / rerank 等）
+     */
+    @IsOptional()
+    @IsString({ message: "模型类型必须是字符串" })
+    modelType?: string = "llm";
+
+    /**
+     * 远程模型 id 列表
+     */
+    @IsArray({ message: "模型列表必须是数组" })
+    @ArrayMinSize(1, { message: "至少需要导入一个模型" })
+    @ValidateNested({ each: true })
+    @Type(() => BatchCreateAiModelItemDto)
+    models: BatchCreateAiModelItemDto[];
 }

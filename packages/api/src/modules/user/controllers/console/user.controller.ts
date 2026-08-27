@@ -24,6 +24,7 @@ import { CreateUserDto } from "@modules/user/dto/create-user.dto";
 import { BatchDeleteUserDto, DeleteUserDto } from "@modules/user/dto/delete-user.dto";
 import { type LoginSettingsConfig } from "@modules/user/dto/login-settings.dto";
 import { AdAuthService, type AdAuthConfig } from "@common/modules/auth/services/ad-auth.service";
+import { AdSyncService } from "@common/modules/auth/services/ad-sync.service";
 import { QueryUserDto } from "@modules/user/dto/query-user.dto";
 import { UpdateUserBalanceDto, UpdateUserDto } from "@modules/user/dto/update-user.dto";
 import { UserService } from "@modules/user/services/user.service";
@@ -52,6 +53,8 @@ export class UserConsoleController extends BaseController {
         @Inject(RolePermissionService)
         private readonly rolePermissionService: RolePermissionService,
         private readonly adAuthService: AdAuthService,
+        @Inject(AdSyncService)
+        private readonly adSyncService: AdSyncService,
         private readonly roleService: RoleService,
         private readonly dictService: DictService,
         @Inject(MembershipOrderService)
@@ -564,6 +567,19 @@ export class UserConsoleController extends BaseController {
             body.password ?? "",
         );
         return result ? { ok: true } : { ok: false };
+    }
+
+    /**
+     * 手动触发域用户同步（组织架构/建档/禁用联动）
+     */
+    @Post("ad-config/sync")
+    @Permissions({
+        code: "sync-ad-users",
+        name: "手动同步域用户",
+        description: "立即执行一次 AD 域用户与部门同步",
+    })
+    async syncAdUsers() {
+        return await this.adSyncService.runNow();
     }
 
     @Get("searchUser")

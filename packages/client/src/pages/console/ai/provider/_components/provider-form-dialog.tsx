@@ -1,30 +1,11 @@
 import { MODEL_TYPE_DESCRIPTIONS, type ModelType } from "@buildingai/ai-sdk/interfaces";
+import { consoleHttpClient } from "@buildingai/services";
 import {
   type AiProvider,
-  type CreateAiProviderDto,
-  useAllSecretTemplatesQuery,
-  useCreateAiProviderMutation,
+  useQuickCreateAiProviderMutation,
   useUpdateAiProviderMutation,
 } from "@buildingai/services/console";
-import { Badge } from "@buildingai/ui/components/ui/badge";
 import { Button } from "@buildingai/ui/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@buildingai/ui/components/ui/collapsible";
-import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxValue,
-  useComboboxAnchor,
-} from "@buildingai/ui/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -44,14 +25,24 @@ import {
 } from "@buildingai/ui/components/ui/form";
 import { ImageUpload } from "@buildingai/ui/components/ui/image-upload";
 import { Input } from "@buildingai/ui/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@buildingai/ui/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@buildingai/ui/components/ui/radio-group";
 import { ScrollArea } from "@buildingai/ui/components/ui/scroll-area";
+import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxValue,
+  useComboboxAnchor,
+} from "@buildingai/ui/components/ui/combobox";
 import { Textarea } from "@buildingai/ui/components/ui/textarea";
-import { cn } from "@buildingai/ui/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, ChevronRight, ChevronsUpDown, FolderKey, Loader2 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
+import React, { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -68,7 +59,8 @@ const formSchema = z.object({
     .min(1, "供应商名称不能为空")
     .max(100, "供应商名称不能超过100个字符"),
   description: z.string().max(1000, "供应商描述不能超过1000个字符").optional(),
-  bindSecretId: z.string({ message: "绑定的密钥配置必须选择" }).min(1, "请绑定一个密钥"),
+  baseUrl: z.string().max(500, "接口地址不能超过 500 个字符").optional(),
+  apiKey: z.string().max(200, "API 密钥不能超过 200 个字符").optional(),
   supportedModelTypes: z.array(z.string()).min(1, "至少选择一种类型").optional(),
   iconUrl: z.string().optional(),
   isActive: z.boolean().optional(),
@@ -80,44 +72,26 @@ type FormValues = z.infer<typeof formSchema>;
 type AiProviderFormDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  openSecretManageDialog: () => void;
   provider?: AiProvider | null;
   onSuccess?: () => void;
+  /** 快捷创建成功回调：返回新厂商（供父级触发自动扫描导入模型） */
+  onQuickCreated?: (provider: AiProvider) => void;
 };
 
 /**
- * AI Provider form dialog component for creating and updating providers
+ * AI 供应商表单（快捷配置：接口地址 + API 密钥）
+ *
+ * 模板/密钥由系统自动创建与绑定；编辑时密钥字段留空表示不修改，
+ * 填写则合并进既有密钥配置（保留模板中的其它字段）。
  */
 export const AiProviderFormDialog = ({
   open,
   onOpenChange,
-  openSecretManageDialog,
   provider,
   onSuccess,
+  onQuickCreated,
 }: AiProviderFormDialogProps) => {
   const isEditMode = !!provider;
-
-  const { data: secretTemplates } = useAllSecretTemplatesQuery();
-
-  const secretGroups = useMemo(() => {
-    if (!secretTemplates) return [];
-
-    return secretTemplates
-      .map((template) => ({
-        id: template.id,
-        name: template.name,
-        secrets: (template.Secrets || []).map((secret) => ({
-          id: secret.id,
-          name: secret.name,
-          templateId: template.id,
-          templateName: template.name,
-          status: secret.status,
-        })),
-      }))
-      .filter((group) => group.secrets.length > 0);
-  }, [secretTemplates]);
-
-  const secrets = useMemo(() => secretGroups.flatMap((group) => group.secrets), [secretGroups]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema as any),
@@ -125,7 +99,8 @@ export const AiProviderFormDialog = ({
       provider: "",
       name: "",
       description: "",
-      bindSecretId: "",
+      baseUrl: "",
+      apiKey: "",
       supportedModelTypes: [],
       iconUrl: "",
       isActive: false,
@@ -133,46 +108,44 @@ export const AiProviderFormDialog = ({
     },
   });
 
-  const bindSecretId = form.watch("bindSecretId");
-  const canEnable = isEditMode || !!bindSecretId;
+  const apiKey = form.watch("apiKey");
+  const canEnable = isEditMode || !!apiKey?.trim();
 
   useEffect(() => {
-    if (!isEditMode && !bindSecretId) {
-      form.setValue("isActive", false);
-    }
-  }, [isEditMode, bindSecretId, form]);
+    if (!open) return;
+    form.reset({
+      provider: provider?.provider ?? "",
+      name: provider?.name ?? "",
+      description: provider?.description ?? "",
+      baseUrl: "",
+      apiKey: "",
+      supportedModelTypes: provider?.supportedModelTypes ?? [],
+      iconUrl: provider?.iconUrl ?? "",
+      isActive: provider?.isActive ?? false,
+      sortOrder: provider?.sortOrder ?? 0,
+    });
 
-  useEffect(() => {
-    if (open) {
-      if (provider) {
-        form.reset({
-          provider: provider.provider,
-          name: provider.name,
-          description: provider.description || "",
-          bindSecretId: provider.bindSecretId || "",
-          supportedModelTypes: provider.supportedModelTypes || [],
-          iconUrl: provider.iconUrl || "",
-          isActive: provider.isActive,
-          sortOrder: provider.sortOrder,
+    // 编辑时回填既有接口地址（API 密钥不回填，留空表示不修改）
+    if (isEditMode && provider?.bindSecretId) {
+      consoleHttpClient
+        .get<{ fieldValues?: { name: string; value?: string }[] }>(
+          `/secret/${provider.bindSecretId}`,
+        )
+        .then((detail) => {
+          const baseUrl = detail?.fieldValues?.find((f) => f.name === "baseUrl")?.value;
+          if (baseUrl) form.setValue("baseUrl", baseUrl);
+        })
+        .catch(() => {
+          // 读不到旧密钥不阻塞编辑
         });
-      } else {
-        form.reset({
-          provider: "",
-          name: "",
-          description: "",
-          bindSecretId: "",
-          supportedModelTypes: [],
-          iconUrl: "",
-          isActive: false,
-          sortOrder: 0,
-        });
-      }
     }
-  }, [open, provider, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, provider]);
 
-  const createMutation = useCreateAiProviderMutation({
-    onSuccess: () => {
+  const createMutation = useQuickCreateAiProviderMutation({
+    onSuccess: (created) => {
       toast.success("供应商创建成功");
+      onQuickCreated?.(created);
       onOpenChange(false);
       onSuccess?.();
     },
@@ -182,11 +155,6 @@ export const AiProviderFormDialog = ({
   });
 
   const updateMutation = useUpdateAiProviderMutation({
-    onSuccess: () => {
-      toast.success("供应商更新成功");
-      onOpenChange(false);
-      onSuccess?.();
-    },
     onError: (error) => {
       toast.error(`更新失败: ${error.message}`);
     },
@@ -194,426 +162,329 @@ export const AiProviderFormDialog = ({
 
   const isPending = createMutation.isPending || updateMutation.isPending;
 
-  const handleSubmit = (values: FormValues) => {
-    const dto: CreateAiProviderDto = {
-      provider: values.provider,
-      name: values.name,
-      description: values.description || undefined,
-      bindSecretId: values.bindSecretId,
-      supportedModelTypes: (values.supportedModelTypes || []).map((t) =>
-        t.toLowerCase(),
-      ) as ModelType[],
-      iconUrl: values.iconUrl || null,
-      isActive: values.isActive,
-      sortOrder: values.sortOrder,
-    };
+  const handleSubmit = async (values: FormValues) => {
+    // 创建：走快捷创建（模板/密钥自动生成绑定）
+    if (!isEditMode || !provider) {
+      if (!values.apiKey?.trim()) {
+        toast.error("请填写 API 密钥");
+        return;
+      }
+      createMutation.mutate({
+        provider: values.provider,
+        name: values.name,
+        baseUrl: values.baseUrl?.trim() || undefined,
+        apiKey: values.apiKey.trim(),
+        iconUrl: values.iconUrl || undefined,
+        supportedModelTypes: (values.supportedModelTypes || []).map((t) =>
+          t.toLowerCase(),
+        ) as ModelType[],
+        isActive: values.isActive,
+        sortOrder: values.sortOrder,
+      });
+      return;
+    }
 
-    if (isEditMode && provider) {
-      updateMutation.mutate({ id: provider.id, dto });
-    } else {
-      createMutation.mutate(dto);
+    // 编辑：更新厂商字段；密钥字段填写则合并更新（留空不修改）
+    try {
+      await updateMutation.mutateAsync({
+        id: provider.id,
+        dto: {
+          provider: values.provider,
+          name: values.name,
+          description: values.description || undefined,
+          supportedModelTypes: (values.supportedModelTypes || []).map((t) =>
+            t.toLowerCase(),
+          ) as ModelType[],
+          iconUrl: values.iconUrl || null,
+          isActive: values.isActive,
+          sortOrder: values.sortOrder,
+        },
+      });
+
+      const apiKeyVal = values.apiKey?.trim();
+      const baseUrlVal = values.baseUrl?.trim();
+      if ((apiKeyVal || baseUrlVal) && provider.bindSecretId) {
+        // 取旧值合并：fieldValues 为整组替换语义，必须携带模板全部字段
+        const detail = await consoleHttpClient.get<{
+          fieldValues?: { name: string; value?: string; encrypted?: boolean }[];
+        }>(`/secret/${provider.bindSecretId}`);
+        const merged = (detail?.fieldValues ?? []).map((field) => {
+          if (field.name === "apiKey" && apiKeyVal) {
+            return { ...field, value: apiKeyVal };
+          }
+          if (field.name === "baseUrl" && baseUrlVal) {
+            return { ...field, value: baseUrlVal };
+          }
+          return field;
+        });
+        await consoleHttpClient.patch(`/secret/${provider.bindSecretId}`, {
+          fieldValues: merged,
+        });
+      }
+
+      toast.success("供应商更新成功");
+      onOpenChange(false);
+      onSuccess?.();
+    } catch (error) {
+      toast.error(`更新失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   const modelTypeAnchor = useComboboxAnchor();
-  const [container, setContainer] = useState<HTMLElement | null>(null);
-  const [secretPopoverOpen, setSecretPopoverOpen] = useState(false);
-  const [openSecretTemplateId, setOpenSecretTemplateId] = useState<string | null>(null);
-  const selectedSecretItemRef = React.useRef<HTMLButtonElement | null>(null);
-
-  const selectedSecret = useMemo(
-    () => secrets.find((secret) => secret.id === bindSecretId),
-    [bindSecretId, secrets],
-  );
-
-  useEffect(() => {
-    if (!secretPopoverOpen || !selectedSecret) return;
-
-    const frame = window.requestAnimationFrame(() => {
-      selectedSecretItemRef.current?.scrollIntoView({
-        block: "center",
-        inline: "nearest",
-      });
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [secretPopoverOpen, selectedSecret, openSecretTemplateId]);
-
-  const handleSecretPopoverOpenChange = (nextOpen: boolean) => {
-    if (nextOpen) {
-      setOpenSecretTemplateId(selectedSecret?.templateId ?? null);
-    }
-
-    setSecretPopoverOpen(nextOpen);
-  };
-
-  const handleSecretTemplateOpenChange = (templateId: string, nextOpen: boolean) => {
-    setOpenSecretTemplateId(nextOpen ? templateId : null);
-  };
+  // 模型类型下拉展开状态：展开时按 Escape 只应关闭下拉，而不是整个对话框
+  const modelTypeComboboxOpenRef = useRef(false);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent ref={setContainer} className="gap-0 p-0 sm:max-w-lg">
+      <DialogContent
+        onEscapeKeyDown={(e) => {
+          if (modelTypeComboboxOpenRef.current) {
+            e.preventDefault();
+            modelTypeComboboxOpenRef.current = false;
+          }
+        }}
+        className="flex h-[85vh] flex-col gap-0 p-0 sm:max-w-lg"
+      >
         <DialogHeader className="p-4">
           <DialogTitle>{isEditMode ? "编辑供应商" : "新增供应商"}</DialogTitle>
           <DialogDescription>
-            {isEditMode ? "修改AI供应商的配置信息" : "添加一个新的AI模型供应商"}
+            {isEditMode
+              ? "修改供应商配置；接口地址 / API 密钥留空表示不修改"
+              : "填写 OpenAI 兼容端点与密钥，系统自动完成配置"}
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[80vh]">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 p-4 pt-0 pb-17">
-              <div className="grid grid-cols-2 gap-4">
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(handleSubmit)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <ScrollArea
+              className="min-h-0 flex-1"
+              viewportClassName="absolute inset-0"
+            >
+              <div className="space-y-4 p-4 pt-0">
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="iconUrl"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>图标</FormLabel>
+                        <FormControl>
+                          <ImageUpload
+                            value={field.value}
+                            onChange={(url) => field.onChange(url ?? "")}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="isActive"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel required>启用状态</FormLabel>
+                        <FormControl>
+                          <RadioGroup
+                            className="flex gap-4"
+                            value={field.value ? "true" : "false"}
+                            onValueChange={(v) => field.onChange(v === "true")}
+                          >
+                            <label className="flex items-center gap-2 text-sm">
+                              <RadioGroupItem value="true" disabled={!canEnable} />
+                              启用
+                            </label>
+                            <label className="flex items-center gap-2 text-sm">
+                              <RadioGroupItem value="false" />
+                              禁用
+                            </label>
+                          </RadioGroup>
+                        </FormControl>
+                        {!isEditMode && !canEnable && (
+                          <FormDescription className="text-xs">
+                            请先填写 API 密钥才能启用供应商
+                          </FormDescription>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
                 <FormField
                   control={form.control}
-                  name="iconUrl"
+                  name="provider"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>图标</FormLabel>
+                      <FormLabel required>供应商标识</FormLabel>
                       <FormControl>
-                        <ImageUpload
-                          value={field.value}
-                          onChange={(url) => field.onChange(url ?? "")}
+                        <Input
+                          placeholder="例如: openai, deepseek, doubao"
+                          {...field}
+                          disabled={isEditMode}
+                        />
+                      </FormControl>
+                      <FormDescription>唯一标识符，创建后不可修改</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel required>供应商名称</FormLabel>
+                      <FormControl>
+                        <Input placeholder="例如: OpenAI, DeepSeek, 字节豆包" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>描述</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="供应商描述信息（可选）"
+                          className="resize-none"
+                          rows={2}
+                          {...field}
                         />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
                 <FormField
                   control={form.control}
-                  name="isActive"
+                  name="baseUrl"
                   render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel required>启用状态</FormLabel>
+                    <FormItem>
+                      <FormLabel>接口地址（可选）</FormLabel>
                       <FormControl>
-                        <RadioGroup
-                          className="flex gap-4"
-                          value={field.value ? "true" : "false"}
-                          onValueChange={(v) => field.onChange(v === "true")}
-                        >
-                          <label className="flex items-center gap-2 text-sm">
-                            <RadioGroupItem value="true" disabled={!canEnable} />
-                            启用
-                          </label>
-                          <label className="flex items-center gap-2 text-sm">
-                            <RadioGroupItem value="false" />
-                            禁用
-                          </label>
-                        </RadioGroup>
+                        <Input placeholder="https://api.openai.com/v1" {...field} />
                       </FormControl>
-                      {!isEditMode && !bindSecretId && (
-                        <FormDescription className="text-xs">
-                          请先选择密钥配置才能启用供应商
-                        </FormDescription>
-                      )}
+                      <FormDescription>
+                        {isEditMode
+                          ? "OpenAI 兼容端点地址；留空表示不修改"
+                          : "OpenAI 兼容端点地址，留空使用该厂商默认端点"}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="apiKey"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel required={!isEditMode}>API 密钥</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          placeholder={isEditMode ? "不修改请留空" : "sk-..."}
+                          autoComplete="off"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>密钥将加密托管，不会明文展示</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="supportedModelTypes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel required>支持的模型类型</FormLabel>
+                      <FormControl>
+                        <Combobox
+                          multiple
+                          autoHighlight
+                          items={MODEL_TYPES}
+                          value={field.value || []}
+                          onValueChange={field.onChange}
+                          onOpenChange={(open) => {
+                            modelTypeComboboxOpenRef.current = open;
+                          }}
+                        >
+                          <ComboboxChips ref={modelTypeAnchor} className="min-h-9 w-full">
+                            <ComboboxValue>
+                              {(values: string[]) => (
+                                <React.Fragment>
+                                  {values.map((value: string) => (
+                                    <ComboboxChip key={value}>
+                                      {MODEL_TYPE_DESCRIPTIONS[value as ModelType]?.name || value}
+                                    </ComboboxChip>
+                                  ))}
+                                  <ComboboxChipsInput placeholder="选择模型类型..." />
+                                </React.Fragment>
+                              )}
+                            </ComboboxValue>
+                          </ComboboxChips>
+                          <ComboboxContent anchor={modelTypeAnchor}>
+                            <ComboboxEmpty>未找到匹配的类型</ComboboxEmpty>
+                            <ComboboxList>
+                              {(item: string) => (
+                                <ComboboxItem key={item} value={item}>
+                                  {MODEL_TYPE_DESCRIPTIONS[item as ModelType]?.name || item}
+                                </ComboboxItem>
+                              )}
+                            </ComboboxList>
+                          </ComboboxContent>
+                        </Combobox>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="sortOrder"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>排序权重</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="0"
+                          {...field}
+                          onChange={(e) => field.onChange(Number(e.target.value))}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
-
-              <FormField
-                control={form.control}
-                name="provider"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel required>供应商标识</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="例如: openai, deepseek, doubao"
-                        {...field}
-                        disabled={isEditMode}
-                      />
-                    </FormControl>
-                    <FormDescription>唯一标识符，创建后不可修改</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel required>供应商名称</FormLabel>
-                    <FormControl>
-                      <Input placeholder="例如: OpenAI, DeepSeek, 字节豆包" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>描述</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="供应商描述信息（可选）"
-                        className="resize-none"
-                        rows={2}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="bindSecretId"
-                render={({ field }) => (
-                  <FormItem>
-                    <div className="flex items-center justify-between">
-                      <FormLabel required>绑定密钥</FormLabel>
-                      <Button
-                        size="xs"
-                        variant="secondary"
-                        onClick={openSecretManageDialog}
-                        type="button"
-                      >
-                        <FolderKey />
-                        管理密钥
-                      </Button>
-                    </div>
-                    <Popover open={secretPopoverOpen} onOpenChange={handleSecretPopoverOpenChange}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            role="combobox"
-                            aria-expanded={secretPopoverOpen}
-                            className={cn(
-                              "w-full justify-between px-2.5 font-normal",
-                              !field.value && "text-muted-foreground",
-                            )}
-                          >
-                            <span className="min-w-0 truncate">
-                              {selectedSecret ? (
-                                <span className="flex min-w-0 items-center gap-2">
-                                  <span
-                                    className={cn(
-                                      "truncate",
-                                      selectedSecret.status !== 1 && "text-muted-foreground",
-                                    )}
-                                  >
-                                    {selectedSecret.name}
-                                  </span>
-                                  <span className="text-muted-foreground shrink-0 text-xs">
-                                    ({selectedSecret.templateName})
-                                  </span>
-                                  {selectedSecret.status !== 1 && (
-                                    <span className="text-muted-foreground shrink-0 text-xs">
-                                      (已关闭)
-                                    </span>
-                                  )}
-                                </span>
-                              ) : (
-                                "选择密钥配置"
-                              )}
-                            </span>
-                            <ChevronsUpDown className="text-muted-foreground ml-2 shrink-0" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        align="start"
-                        container={container}
-                        className="max-h-80 w-(--radix-popover-trigger-width) gap-0 p-0"
-                      >
-                        <ScrollArea
-                          className="flex min-h-0 flex-1 flex-col rounded-lg"
-                          viewportClassName="[&>div]:block! [&>div]:flex-1"
-                        >
-                          <div className="flex flex-col gap-1 p-1">
-                            {secretGroups.length === 0 ? (
-                              <div className="text-muted-foreground px-3 py-6 text-center text-sm">
-                                暂无可绑定的密钥
-                              </div>
-                            ) : (
-                              secretGroups.map((group) => {
-                                const containsSelectedSecret = group.secrets.some(
-                                  (secret) => secret.id === field.value,
-                                );
-                                const isGroupOpen =
-                                  openSecretTemplateId === group.id ||
-                                  (openSecretTemplateId === null &&
-                                    secretPopoverOpen &&
-                                    containsSelectedSecret);
-
-                                return (
-                                  <Collapsible
-                                    key={group.id}
-                                    open={isGroupOpen}
-                                    onOpenChange={(nextOpen) =>
-                                      handleSecretTemplateOpenChange(group.id, nextOpen)
-                                    }
-                                    className="group/collapsible"
-                                  >
-                                    <CollapsibleTrigger asChild>
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        className="h-9 w-full justify-start gap-2 px-2"
-                                      >
-                                        <ChevronRight className="text-muted-foreground transition-transform group-data-[state=open]/collapsible:rotate-90" />
-                                        <span className="min-w-0 flex-1 truncate text-left">
-                                          {group.name}
-                                        </span>
-                                        <Badge variant="secondary" className="shrink-0">
-                                          {group.secrets.length}
-                                        </Badge>
-                                      </Button>
-                                    </CollapsibleTrigger>
-                                    <CollapsibleContent>
-                                      <div className="flex flex-col gap-0.5 py-1 pl-6">
-                                        {group.secrets.length === 0 ? (
-                                          <div className="text-muted-foreground px-2 py-2 text-xs">
-                                            该分组暂无密钥
-                                          </div>
-                                        ) : (
-                                          group.secrets.map((secret) => {
-                                            const isSelected = secret.id === field.value;
-                                            const isDisabled = secret.status !== 1;
-
-                                            return (
-                                              <Button
-                                                key={secret.id}
-                                                ref={isSelected ? selectedSecretItemRef : undefined}
-                                                type="button"
-                                                variant="ghost"
-                                                disabled={isDisabled}
-                                                className={cn(
-                                                  "h-8 w-full justify-start gap-2 px-2 font-normal",
-                                                  isSelected && "bg-muted text-foreground",
-                                                  isDisabled &&
-                                                    "text-muted-foreground cursor-not-allowed",
-                                                )}
-                                                onClick={() => {
-                                                  if (isDisabled) return;
-                                                  field.onChange(secret.id);
-                                                  setSecretPopoverOpen(false);
-                                                }}
-                                              >
-                                                <span className="min-w-0 flex-1 truncate text-left">
-                                                  {secret.name}
-                                                  {isDisabled && (
-                                                    <span className="text-muted-foreground ml-1 text-xs">
-                                                      （已关闭）
-                                                    </span>
-                                                  )}
-                                                </span>
-                                                <Check
-                                                  data-icon="inline-end"
-                                                  className={cn(
-                                                    "ml-auto shrink-0",
-                                                    isSelected ? "opacity-100" : "opacity-0",
-                                                  )}
-                                                />
-                                              </Button>
-                                            );
-                                          })
-                                        )}
-                                      </div>
-                                    </CollapsibleContent>
-                                  </Collapsible>
-                                );
-                              })
-                            )}
-                          </div>
-                        </ScrollArea>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="supportedModelTypes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel required>支持的模型类型</FormLabel>
-                    <FormControl>
-                      <Combobox
-                        multiple
-                        autoHighlight
-                        items={MODEL_TYPES}
-                        value={field.value || []}
-                        onValueChange={field.onChange}
-                      >
-                        <ComboboxChips ref={modelTypeAnchor} className="min-h-9 w-full">
-                          <ComboboxValue>
-                            {(values: string[]) => (
-                              <React.Fragment>
-                                {values.map((value: string) => (
-                                  <ComboboxChip key={value}>
-                                    {MODEL_TYPE_DESCRIPTIONS[value as ModelType]?.nameEn || value}
-                                  </ComboboxChip>
-                                ))}
-                                <ComboboxChipsInput placeholder="选择模型类型..." />
-                              </React.Fragment>
-                            )}
-                          </ComboboxValue>
-                        </ComboboxChips>
-                        <ComboboxContent anchor={modelTypeAnchor} container={container}>
-                          <ComboboxEmpty>未找到匹配的类型</ComboboxEmpty>
-                          <ComboboxList>
-                            {(item: string) => (
-                              <ComboboxItem key={item} value={item}>
-                                {MODEL_TYPE_DESCRIPTIONS[item as ModelType]?.nameEn || item}
-                              </ComboboxItem>
-                            )}
-                          </ComboboxList>
-                        </ComboboxContent>
-                      </Combobox>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="sortOrder"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>排序权重</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        min={0}
-                        placeholder="0"
-                        {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <DialogFooter className="bg-background absolute bottom-0 left-0 w-full flex-row justify-end rounded-lg p-4">
-                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                  取消
-                </Button>
-                <Button type="submit" disabled={isPending}>
-                  {isPending && <Loader2 className="animate-spin" />}
-                  {isEditMode ? "保存" : "创建"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </ScrollArea>
+            </ScrollArea>
+            <DialogFooter className="border-t p-4 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                取消
+              </Button>
+              <Button type="submit" disabled={isPending}>
+                {isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
+                {isEditMode ? "保存" : "创建"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

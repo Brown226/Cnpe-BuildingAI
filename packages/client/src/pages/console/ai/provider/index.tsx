@@ -5,9 +5,11 @@ import {
   type ModelType,
 } from "@buildingai/ai-sdk/interfaces";
 import { useDocumentHead } from "@buildingai/hooks";
+import { consoleHttpClient } from "@buildingai/services";
 import {
   type AiProvider,
   type AiProviderModel,
+  type AiProviderRemoteModelItem,
   type QueryAiProviderDto,
   useAiProvidersQuery,
   useDeleteAiModelMutation,
@@ -15,6 +17,7 @@ import {
   useToggleAiModelActiveMutation,
   useToggleAiProviderActiveMutation,
 } from "@buildingai/services/console";
+import { useQueryClient } from "@tanstack/react-query";
 import { PermissionGuard } from "@buildingai/ui/components/auth/permission-guard";
 import { Badge } from "@buildingai/ui/components/ui/badge";
 import { Button } from "@buildingai/ui/components/ui/button";
@@ -57,8 +60,10 @@ import {
   EllipsisVertical,
   FileJson2,
   FileText,
+  Loader2,
   Plus,
   PlusCircle,
+  PlugZap,
   ScanEye,
   Settings,
   Settings2,
@@ -69,7 +74,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useDebounceValue } from "usehooks-ts";
 
@@ -78,7 +83,7 @@ import { PageContainer } from "@/layouts/console/_components/page-container";
 
 import { AiModelFormDialog } from "./_components/model-form-dialog";
 import { AiProviderFormDialog } from "./_components/provider-form-dialog";
-import AiSecretManageDialog from "./_components/secret-manage-dialog";
+import { ScanImportDialog } from "./_components/scan-import-dialog";
 
 /**
  * Feature icon mapping for model capabilities
@@ -119,7 +124,7 @@ const ModelFeatureBadges = ({ features }: ModelFeatureBadgesProps) => (
             <p>
               {
                 MODEL_FEATURE_DESCRIPTIONS[feature as keyof typeof MODEL_FEATURE_DESCRIPTIONS]
-                  ?.label
+                  ?.name
               }
             </p>
           </TooltipContent>
@@ -140,10 +145,49 @@ const AiProviderIndexPage = () => {
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<AiProvider | null>(null);
   const [modelFormDialogOpen, setModelFormDialogOpen] = useState(false);
-  const [secretManageDialogOpen, setSecretManageDialogOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<AiProviderModel | null>(null);
+  const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
+  const [scanImportOpen, setScanImportOpen] = useState(false);
+  const [scanProvider, setScanProvider] = useState<AiProvider | null>(null);
   const { data, refetch, isLoading } = useAiProvidersQuery(queryParams);
   const { confirm } = useAlertDialog();
+  const queryClient = useQueryClient();
+  // 标记菜单项是否即将打开对话框：菜单关闭动画结束会把焦点还给触发按钮，
+  // 会覆盖对话框的初始聚焦，此时需阻止菜单的焦点归还
+  const menuOpensDialogRef = useRef(false);
+
+  /**
+   * 快捷创建厂商成功：刷新列表并自动弹出远程模型扫描导入
+   */
+  const handleQuickCreated = (provider: AiProvider) => {
+    void refetch();
+    setScanProvider(provider);
+    setScanImportOpen(true);
+  };
+
+  /**
+   * 测试供应商连通性：拉取远程模型列表，成功即密钥/端点可用
+   */
+  const handleTestConnection = async (provider: AiProvider) => {
+    setTestingProviderId(provider.id);
+    try {
+      const models = await queryClient.fetchQuery<AiProviderRemoteModelItem[]>({
+        queryKey: ["ai-providers", "remote", provider.id],
+        queryFn: () =>
+          consoleHttpClient.get<AiProviderRemoteModelItem[]>(`/ai-providers/remote/${provider.id}`),
+        staleTime: 0,
+      });
+      toast.success(`「${provider.name}」连接成功，发现 ${models?.length ?? 0} 个远程模型`);
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (error as Error)?.message ??
+        "未知错误";
+      toast.error(`「${provider.name}」连接失败：${message}`);
+    } finally {
+      setTestingProviderId(null);
+    }
+  };
 
   useDocumentHead({
     title: "模型厂商管理",
@@ -168,6 +212,7 @@ const AiProviderIndexPage = () => {
   });
 
   const handleManageModels = (provider: AiProvider) => {
+    menuOpensDialogRef.current = true;
     setSelectedProvider(provider);
     setModelStatus("all");
     setModelType("all");
@@ -180,6 +225,7 @@ const AiProviderIndexPage = () => {
   };
 
   const handleOpenEditDialog = (provider: AiProvider) => {
+    menuOpensDialogRef.current = true;
     setEditingProvider(provider);
     setFormDialogOpen(true);
   };
@@ -258,6 +304,7 @@ const AiProviderIndexPage = () => {
   };
 
   const handleDelete = async (provider: AiProvider) => {
+    menuOpensDialogRef.current = true;
     await confirm({
       title: "删除供应商",
       description: "确定要删除该供应商吗？此操作不可恢复。",
@@ -403,6 +450,22 @@ const AiProviderIndexPage = () => {
                       管理模型({provider.models?.length || 0})
                       <ChevronRight />
                     </Button>
+                    <PermissionGuard permissions="ai-models:remote-models">
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="text-muted-foreground px-0 hover:px-2"
+                        disabled={testingProviderId === provider.id}
+                        onClick={() => handleTestConnection(provider)}
+                      >
+                        {testingProviderId === provider.id ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <PlugZap />
+                        )}
+                        测试连接
+                      </Button>
+                    </PermissionGuard>
                   </div>
                   <PermissionGuard permissions={["ai-providers:update", "ai-providers:delete"]} any>
                     <DropdownMenu>
@@ -411,7 +474,15 @@ const AiProviderIndexPage = () => {
                           <EllipsisVertical />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent>
+                      <DropdownMenuContent
+                        onCloseAutoFocus={(e) => {
+                          // 菜单项打开了对话框时不归还焦点，避免覆盖对话框的初始聚焦
+                          if (menuOpensDialogRef.current) {
+                            e.preventDefault();
+                            menuOpensDialogRef.current = false;
+                          }
+                        }}
+                      >
                         <PermissionGuard permissions="ai-providers:update">
                           <DropdownMenuItem onClick={() => handleOpenEditDialog(provider)}>
                             <Edit />
@@ -499,14 +570,14 @@ const AiProviderIndexPage = () => {
                       <SelectValue placeholder="模型类型">
                         {modelType === "all"
                           ? "全部类型"
-                          : MODEL_TYPE_DESCRIPTIONS[modelType].nameEn}
+                          : MODEL_TYPE_DESCRIPTIONS[modelType].name}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">全部类型</SelectItem>
                       {MODEL_TYPES.map((type) => (
                         <SelectItem key={type} value={type}>
-                          {MODEL_TYPE_DESCRIPTIONS[type].nameEn}
+                          {MODEL_TYPE_DESCRIPTIONS[type].name}
                           <span className="text-muted-foreground ml-1 text-xs">
                             ({MODEL_TYPE_DESCRIPTIONS[type].description})
                           </span>
@@ -622,9 +693,16 @@ const AiProviderIndexPage = () => {
         <AiProviderFormDialog
           open={formDialogOpen}
           onOpenChange={setFormDialogOpen}
-          openSecretManageDialog={() => setSecretManageDialogOpen(true)}
           provider={editingProvider}
           onSuccess={refetch}
+          onQuickCreated={handleQuickCreated}
+        />
+
+        <ScanImportDialog
+          open={scanImportOpen}
+          onOpenChange={setScanImportOpen}
+          provider={scanProvider}
+          onImported={refetch}
         />
 
         {selectedProvider && (
@@ -637,10 +715,6 @@ const AiProviderIndexPage = () => {
           />
         )}
       </div>
-      <AiSecretManageDialog
-        open={secretManageDialogOpen}
-        onOpenChange={setSecretManageDialogOpen}
-      />
     </PageContainer>
   );
 };

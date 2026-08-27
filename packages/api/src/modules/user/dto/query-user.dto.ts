@@ -1,6 +1,6 @@
 import { PaginationDto } from "@buildingai/dto/pagination.dto";
 import { Transform } from "class-transformer";
-import { IsNumber, IsOptional, IsString } from "class-validator";
+import { ArrayMinSize, IsArray, IsNumber, IsOptional, IsString } from "class-validator";
 
 /**
  * 查询用户DTO
@@ -44,6 +44,29 @@ export class QueryUserDto extends PaginationDto {
     @IsOptional()
     @IsString({ message: "创建结束时间必须是字符串" })
     endTime?: string;
+
+    /**
+     * 部门ID列表
+     *
+     * 逗号分隔的部门ID字符串（如 "id1,id2"），Transform 拆分为数组后校验
+     */
+    @IsOptional()
+    @Transform(({ value }) => {
+        if (typeof value !== "string") return value;
+        const ids = value.split(",").map((id) => id.trim()).filter(Boolean);
+        return ids.length > 0 ? ids : undefined;
+    })
+    @IsArray({ message: "部门ID列表必须是数组" })
+    @ArrayMinSize(1, { message: "部门ID列表不能为空" })
+    @IsString({ each: true, message: "部门ID必须是字符串" })
+    departmentIds?: string[];
+
+    /**
+     * 角色ID
+     */
+    @IsOptional()
+    @IsString({ message: "角色ID必须是字符串" })
+    roleId?: string;
 
     // 分页参数已由 PaginationDto 提供
 }

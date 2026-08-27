@@ -53,8 +53,8 @@ export class UpdateAgentDto {
     avatar?: string;
 
     @IsOptional()
-    @IsIn(["direct", "coze", "dify"])
-    createMode?: "direct" | "coze" | "dify";
+    @IsIn(["direct", "coze", "dify", "ragflow"])
+    createMode?: "direct" | "coze" | "dify" | "ragflow";
 
     @IsOptional()
     @IsObject()

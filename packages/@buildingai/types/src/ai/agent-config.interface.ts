@@ -250,7 +250,7 @@ export interface AnnotationConfig {
  */
 export interface ThirdPartyIntegrationConfig {
     /** 第三方平台标识 */
-    provider?: "coze" | "dify";
+    provider?: "coze" | "dify" | "ragflow";
     /** 应用/机器人ID */
     appId?: string;
     /** API 密钥 */

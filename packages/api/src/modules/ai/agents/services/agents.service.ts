@@ -26,6 +26,7 @@ import { UpdateAgentDto } from "../dto/web/agent/update-agent.dto";
 import type { UpdatePublishConfigDto } from "../dto/web/publish/update-publish-config.dto";
 import { CozeAgentSyncService } from "../integrations/coze-agent-sync.service";
 import { DifyAgentSyncService } from "../integrations/dify-agent-sync.service";
+import { RagflowAgentSyncService } from "../integrations/ragflow-agent-sync.service";
 
 type AgentPublishConfigWithCopy = NonNullable<Agent["publishConfig"]> & {
     allowCopy?: boolean;
@@ -47,6 +48,7 @@ export class AgentsService extends BaseService<Agent> {
         private readonly datasetsRepository: Repository<Datasets>,
         private readonly cozeAgentSyncService: CozeAgentSyncService,
         private readonly difyAgentSyncService: DifyAgentSyncService,
+        private readonly ragflowAgentSyncService: RagflowAgentSyncService,
         private readonly agentConfigService: AgentConfigService,
     ) {
         super(agentRepository);
@@ -214,6 +216,9 @@ export class AgentsService extends BaseService<Agent> {
         if (agent.createMode === "dify" && dto.thirdPartyIntegration !== undefined) {
             this.difyAgentSyncService.normalizeConfig(agent);
         }
+        if (agent.createMode === "ragflow" && dto.thirdPartyIntegration !== undefined) {
+            this.ragflowAgentSyncService.normalizeConfig(agent);
+        }
 
         await this.syncAgentTags(agent, dto.tagIds);
         const savedAgent = await this.agentRepository.save(agent);
@@ -225,6 +230,11 @@ export class AgentsService extends BaseService<Agent> {
 
         if (savedAgent.createMode === "dify" && dto.thirdPartyIntegration !== undefined) {
             const syncResult = await this.difyAgentSyncService.syncAgentInfo(savedAgent.id);
+            return syncResult.agent ?? savedAgent;
+        }
+
+        if (savedAgent.createMode === "ragflow" && dto.thirdPartyIntegration !== undefined) {
+            const syncResult = await this.ragflowAgentSyncService.syncAgentInfo(savedAgent.id);
             return syncResult.agent ?? savedAgent;
         }
 

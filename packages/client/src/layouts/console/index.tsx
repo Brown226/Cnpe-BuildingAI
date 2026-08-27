@@ -4,7 +4,7 @@ import {
   hasConsoleRouteAccess,
   WEB_HOME_PATH,
 } from "@buildingai/services/shared";
-import { useAuthStore } from "@buildingai/stores";
+import { useAuthStore, useConfigStore } from "@buildingai/stores";
 import NotFoundPage from "@buildingai/ui/components/exception/not-found-page";
 import { ScrollArea } from "@buildingai/ui/components/ui/scroll-area";
 import { SidebarInset, SidebarProvider } from "@buildingai/ui/components/ui/sidebar";
@@ -57,6 +57,7 @@ import DepartmentIndexPage from "@/pages/console/user/department";
 
 import AppNavbar from "./_components/app-navbar";
 import { AppSidebar } from "./_components/app-sidebar";
+import { isEnterpriseHiddenConsolePath } from "@/utils/enterprise-mode";
 
 const modules = import.meta.glob<{ default: ComponentType }>(
   ["@/pages/console/**/*.tsx", "!@/pages/console/**/_components/**"],
@@ -285,6 +286,8 @@ function ConsoleRoutes() {
 export default function ConsoleLayout({ children }: { children?: React.ReactNode }) {
   const location = useLocation();
   const { userInfo } = useAuthStore((state) => state.auth);
+  const billingEnabled =
+    useConfigStore((state) => state.config)?.websiteConfig?.features?.billingEnabled ?? false;
   const firstConsolePath = useMemo(
     () => getFirstConsoleMenuPath(userInfo?.menus ?? []),
     [userInfo?.menus],
@@ -297,6 +300,16 @@ export default function ConsoleLayout({ children }: { children?: React.ReactNode
   }
 
   const currentPath = location.pathname.replace(/\/$/, "") || WEB_HOME_PATH;
+
+  // 企业免费模式（billingEnabled=false）：后台商业模块页面（财务管理/营销中心/订单管理）不可达
+  if (
+    !billingEnabled &&
+    currentPath.startsWith("/console/") &&
+    isEnterpriseHiddenConsolePath(currentPath.replace(/^\/console\//, ""))
+  ) {
+    return <Navigate to={firstConsolePath} replace />;
+  }
+
   if (currentPath === "/console" && currentPath !== firstConsolePath) {
     return <Navigate to={firstConsolePath} replace />;
   }

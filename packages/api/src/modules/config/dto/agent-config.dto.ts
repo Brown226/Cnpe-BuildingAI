@@ -1,7 +1,7 @@
 import { Type } from "class-transformer";
 import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, Min, ValidateNested } from "class-validator";
 
-const AGENT_CREATE_TYPES = ["direct", "coze", "dify"] as const;
+const AGENT_CREATE_TYPES = ["direct", "coze", "dify", "ragflow"] as const;
 const AGENT_BILLING_MODES = ["dynamic", "points"] as const;
 
 /** 智能体可创建类型配置 DTO */

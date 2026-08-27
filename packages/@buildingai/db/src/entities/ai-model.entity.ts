@@ -90,6 +90,17 @@ export class AiModel extends BaseEntity {
     maxContext?: number;
 
     /**
+     * 最大输出 Token 数
+     */
+    @Column({
+        type: "integer",
+        nullable: true,
+        default: 4096,
+        comment: "最大输出Token数",
+    })
+    maxOutput?: number;
+
+    /**
      * 模型特定配置
      * 用于存储模型级别的特定配置参数
      */

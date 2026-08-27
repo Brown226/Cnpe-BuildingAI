@@ -38,6 +38,7 @@ const AGENT_TYPE_OPTIONS: AgentTypeOption[] = [
   { key: "direct", label: "系统智能体" },
   { key: "coze", label: "Coze智能体" },
   { key: "dify", label: "Dify智能体" },
+  { key: "ragflow", label: "RagFlow智能体" },
 ];
 
 /** 创建默认的智能体类型配置 */
@@ -56,6 +57,12 @@ function buildDefaultTypeConfig(): AgentTypeConfigItem[] {
     },
     {
       key: "dify",
+      enabled: true,
+      billingMode: "points",
+      points: 0,
+    },
+    {
+      key: "ragflow",
       enabled: true,
       billingMode: "points",
       points: 0,

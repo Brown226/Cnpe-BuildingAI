@@ -45,9 +45,12 @@ import { CozeAgentSyncService } from "./integrations/coze-agent-sync.service";
 import { CozeApiService } from "./integrations/coze-api.service";
 import { DifyAgentSyncService } from "./integrations/dify-agent-sync.service";
 import { DifyApiService } from "./integrations/dify-api.service";
+import { RagflowAgentSyncService } from "./integrations/ragflow-agent-sync.service";
+import { RagflowApiService } from "./integrations/ragflow-api.service";
 import { AgentAliasRewriteMiddleware } from "./middleware/agent-alias-rewrite.middleware";
 import { CozeChatProvider } from "./providers/coze-chat.provider";
 import { DifyChatProvider } from "./providers/dify-chat.provider";
+import { RagflowChatProvider } from "./providers/ragflow-chat.provider";
 import { AgentAnnotationService } from "./services/agent-annotation.service";
 import { AgentChatCompletionService } from "./services/agent-chat-completion.service";
 import { AgentChatMessageService } from "./services/agent-chat-message.service";
@@ -114,6 +117,9 @@ import { AgentsService } from "./services/agents.service";
         DifyApiService,
         DifyAgentSyncService,
         DifyChatProvider,
+        RagflowApiService,
+        RagflowAgentSyncService,
+        RagflowChatProvider,
         // Shared services (same pattern as AiChatModule)
         AiModelService,
         AiProviderService,

@@ -49,7 +49,7 @@ export class ChatConfigService extends BaseService<Dict> {
         const welcomeInfo = await this.dictService.get(
             "chat_welcome",
             {
-                title: "👋 Hi, How can I help you?",
+                title: "👋 你好，我可以帮你做什么？",
                 description: "作为你的智能伙伴，写文案、写代码、理思路、整理文档等，都可以交给我",
                 footer: "内容由AI生成，无法确保真实准确，仅供参考。",
             },

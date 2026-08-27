@@ -1,7 +1,7 @@
 import { DictService } from "@buildingai/dict";
 import { Injectable } from "@nestjs/common";
 
-export const AGENT_CREATE_TYPE_KEYS = ["direct", "coze", "dify"] as const;
+export const AGENT_CREATE_TYPE_KEYS = ["direct", "coze", "dify", "ragflow"] as const;
 export const AGENT_BILLING_MODE_KEYS = ["dynamic", "points"] as const;
 
 export type AgentCreateTypeKey = (typeof AGENT_CREATE_TYPE_KEYS)[number];
@@ -37,6 +37,12 @@ const DEFAULT_CREATE_TYPES: AgentTypeConfigItem[] = [
     },
     {
         key: "dify",
+        enabled: true,
+        billingMode: "points",
+        points: 0,
+    },
+    {
+        key: "ragflow",
         enabled: true,
         billingMode: "points",
         points: 0,

@@ -11,6 +11,7 @@ import {
     QueryAiProviderDto,
     UpdateAiProviderDto,
 } from "@modules/ai/provider/dto/ai-provider.dto";
+import { CreateQuickAiProviderDto } from "@modules/ai/provider/dto/quick-create-ai-provider.dto";
 import { AiProviderService } from "@modules/ai/provider/services/ai-provider.service";
 import { Body, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 
@@ -39,6 +40,21 @@ export class AiProviderConsoleController extends BaseController {
     })
     async create(@Body() dto: CreateAiProviderDto) {
         return await this.aiProviderService.createProvider(dto);
+    }
+
+    /**
+     * 快捷创建AI供应商（OpenAI 兼容场景）
+     *
+     * 直接提供 Base URL + API Key，系统自动完成模板/密钥的创建与绑定。
+     */
+    @Post("quick-create")
+    @BuildFileUrl(["**.iconUrl"])
+    @Permissions({
+        code: "create",
+        name: "创建AI供应商",
+    })
+    async quickCreate(@Body() dto: CreateQuickAiProviderDto) {
+        return await this.aiProviderService.quickCreateProvider(dto);
     }
 
     /**

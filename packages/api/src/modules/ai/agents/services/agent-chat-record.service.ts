@@ -288,6 +288,31 @@ export class AgentChatRecordService extends BaseService<AgentChatRecord> {
         return qb.getOne();
     }
 
+    /**
+     * 通过 RagFlow 远端 session_id 查找本地对话记录。
+     */
+    async findConversationByRagflowSessionId(params: {
+        agentId: string;
+        userId?: string;
+        ragflowSessionId: string;
+    }): Promise<AgentChatRecord | null> {
+        const qb = this.chatRecordRepository
+            .createQueryBuilder("record")
+            .where("record.agent_id = :agentId", { agentId: params.agentId })
+            .andWhere("record.is_deleted = false")
+            .andWhere("record.metadata ->> 'ragflowSessionId' = :ragflowSessionId", {
+                ragflowSessionId: params.ragflowSessionId,
+            })
+            .orderBy("record.updated_at", "DESC")
+            .limit(1);
+
+        if (params.userId) {
+            qb.andWhere("record.user_id = :userId", { userId: params.userId });
+        }
+
+        return qb.getOne();
+    }
+
     async updateTitle(conversationId: string, title: string): Promise<void> {
         await this.chatRecordRepository.update(conversationId, { title });
     }

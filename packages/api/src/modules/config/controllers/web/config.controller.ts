@@ -41,6 +41,8 @@ export class ConfigWebController extends BaseController {
                 membership: Boolean(membershipEnabled),
                 cdk: Boolean(cdkEnabled),
                 recharge: Boolean(rechargeEnabled),
+                /** 计费总开关：false 时为企业免费模式，前端隐藏积分/价格/会员锁等商业痕迹 */
+                billingEnabled: process.env.SERVER_BILLING_ENABLED === "true",
             },
             cdk: {
                 notice: cdkNotice || "",

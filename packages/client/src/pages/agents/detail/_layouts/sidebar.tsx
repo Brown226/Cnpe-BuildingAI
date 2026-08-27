@@ -159,7 +159,7 @@ export function OrchestrationSidebar({ ...props }: React.ComponentProps<typeof S
           name: agent?.name ?? "",
           description: agent?.description ?? "",
           avatarUrl: agent?.avatar ?? undefined,
-          creationMethod: (agent?.createMode as "direct" | "coze" | "dify" | undefined) ?? "direct",
+          creationMethod: (agent?.createMode as "direct" | "coze" | "dify" | "ragflow" | undefined) ?? "direct",
         }}
         onSuccess={() => {
           refetch();

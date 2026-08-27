@@ -20,7 +20,7 @@ import * as bcrypt from "bcryptjs";
 import { isEmail, isMobilePhone } from "class-validator";
 
 import { RegisterDto } from "../dto/register.dto";
-import { AdAuthService } from "./ad-auth.service";
+import { AdAuthService, AdUserInfo } from "./ad-auth.service";
 import { RolePermissionService } from "./role-permission.service";
 import { UserTokenService } from "./user-token.service";
 
@@ -262,10 +262,37 @@ export class AuthService extends BaseService<User> {
         userAgent?: string,
     ) {
         // 查找用户
-        const user = await this.findOne({
+        let user = await this.findOne({
             where: { username },
             relations: ["role", "permissions"],
         });
+
+        // 验证密码：优先走 AD 认证（若启用），否则用本地 bcrypt
+        const adConfig = await this.adAuthService.getConfig();
+        const isDomainUsername = /^[a-zA-Z0-9._-]{1,64}$/.test(username);
+
+        if (adConfig.enabled && !user && isDomainUsername) {
+            // 域账号首登自动建档（ADR-08）：本地无档案但 AD 验证通过 → 创建后继续登录流程
+            const adInfo = await this.adAuthService.verifyWithAttributes(username, password);
+            if (!adInfo) {
+                throw HttpErrorFactory.unauthorized(
+                    "Invalid email, account, phone number, or password.",
+                    BusinessCode.LOGIN_FAILED,
+                );
+            }
+            if (adInfo.disabled) {
+                throw HttpErrorFactory.forbidden(
+                    "The domain account has been disabled.",
+                    BusinessCode.USER_DISABLED,
+                );
+            }
+            user = await this.provisionFromAd(adInfo);
+            // 建档后重新加载角色关系
+            user = (await this.findOne({
+                where: { username },
+                relations: ["role", "permissions"],
+            })) as User;
+        }
 
         // 如果用户不存在
         if (!user) {
@@ -275,19 +302,40 @@ export class AuthService extends BaseService<User> {
             );
         }
 
-        // 验证密码：优先走 AD 认证（若启用），否则用本地 bcrypt
-        const adConfig = await this.adAuthService.getConfig();
         let isPasswordValid = false;
 
         if (adConfig.enabled) {
-            const adPassed = await this.adAuthService.verify(username, password);
-            if (!adPassed) {
-                throw HttpErrorFactory.unauthorized(
-                    "Invalid email, account, phone number, or password.",
-                    BusinessCode.LOGIN_FAILED,
-                );
+            if (!isDomainUsername) {
+                // 邮箱/手机号登录不做 LDAP 绑定验证，保持本地密码逻辑
+                isPasswordValid = await bcrypt.compare(password, user.password);
+                if (!isPasswordValid) {
+                    throw HttpErrorFactory.unauthorized(
+                        "Invalid email, account, phone number, or password.",
+                        BusinessCode.LOGIN_FAILED,
+                    );
+                }
+            } else {
+                // 域账号登录：绑定验证 + 属性顺手同步（姓名/邮箱/部门/禁用状态），幂等且开销极低
+                const adInfo = await this.adAuthService.verifyWithAttributes(username, password);
+                if (!adInfo) {
+                    throw HttpErrorFactory.unauthorized(
+                        "Invalid email, account, phone number, or password.",
+                        BusinessCode.LOGIN_FAILED,
+                    );
+                }
+                isPasswordValid = true;
+                await this.applyAdUser(user, adInfo);
             }
-            isPasswordValid = true;
+            // 复核禁用状态（applyAdUser 可能已把域禁用落到本地档案）
+            if (isDomainUsername || isDisabled(user.status)) {
+                const fresh = await this.findOne({ where: { username } });
+                if (fresh && isDisabled(fresh.status)) {
+                    throw HttpErrorFactory.forbidden(
+                        "The account has been disabled.",
+                        BusinessCode.USER_DISABLED,
+                    );
+                }
+            }
         } else {
             // 本地密码验证
             isPasswordValid = await bcrypt.compare(password, user.password);
@@ -811,5 +859,183 @@ export class AuthService extends BaseService<User> {
                 role: {},
             },
         };
+    }
+
+    // ── AD 域账号：首登建档与同步（ADR-08）──────────────────────────────
+
+    /**
+     * 域账号首登自动建档
+     *
+     * 语义与员工 Excel 导入保持一致（来源 CONSOLE、随机占位密码、默认头像），
+     * 占位密码不可用于本地登录——AD 启用期间登录一律走 LDAP 绑定验证。
+     */
+    private async provisionFromAd(info: AdUserInfo): Promise<User> {
+        const placeholderPassword = `ad-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await this.userRepository.save(
+            this.userRepository.create({
+                username: info.username,
+                password: await bcrypt.hash(placeholderPassword, 10),
+                email: info.email || undefined,
+                realName: info.displayName || undefined,
+                nickname: info.displayName || info.username,
+                status: info.disabled ? 0 : 1,
+                source: UserCreateSource.CONSOLE,
+                userNo: await generateNo(this.userRepository, "userNo"),
+                avatar: `/static/avatars/${Math.floor(Math.random() * 33) + 1}.png`,
+            }),
+        );
+        if (created && info.ouNames.length > 0) {
+            const deptIds = await this.ensureDepartmentsFromOu(info.ouNames);
+            for (const departmentId of deptIds) {
+                await this.departmentUserIndexRepository.save(
+                    this.departmentUserIndexRepository.create({ userId: created.id, departmentId }),
+                );
+            }
+        }
+        return created;
+    }
+
+    /**
+     * 单个域用户属性落库（登录顺手同步 + 定时批量同步共用）
+     *
+     * 同步项：realName/email/昵称、部门归属（OU 变更迁移）、禁用状态联动撤票。
+     */
+    private async applyAdUser(existing: User, info: AdUserInfo): Promise<void> {
+        const updates: Partial<User> = {};
+
+        if (!existing.realName && info.displayName && existing.realName !== info.displayName) {
+            updates.realName = info.displayName;
+        }
+        if (!existing.nickname && (info.displayName || info.username)) {
+            updates.nickname = info.displayName ?? info.username;
+        }
+        if (info.email && existing.email !== info.email) {
+            updates.email = info.email;
+        }
+        if (info.disabled && !isDisabled(existing.status)) {
+            updates.status = 0;
+        } else if (!info.disabled && isDisabled(existing.status) && existing.password.startsWith("$2")) {
+            // 域恢复启用；占位密码账号在 AD 恢复时同步解禁
+            updates.status = 1;
+        }
+
+        if (Object.keys(updates).length > 0) {
+            await this.updateById(existing.id, updates);
+        }
+
+        // 部门归属同步：OU 决定部门，变更则整体重建关联（个人手工调整会被覆盖，
+        // 以目录为准是该类企业的预期行为）
+        if (info.ouNames.length > 0) {
+            const deptIds = await this.ensureDepartmentsFromOu(info.ouNames);
+            const current = await this.departmentUserIndexRepository.find({
+                where: { userId: existing.id },
+            });
+            const currentSet = new Set(current.map((c) => c.departmentId));
+            const targetSet = new Set(deptIds);
+            const changed =
+                currentSet.size !== targetSet.size ||
+                [...targetSet].some((id) => !currentSet.has(id));
+            if (changed) {
+                await this.departmentUserIndexRepository.delete({ userId: existing.id });
+                for (const departmentId of targetSet) {
+                    await this.departmentUserIndexRepository.save(
+                        this.departmentUserIndexRepository.create({
+                            userId: existing.id,
+                            departmentId,
+                        }),
+                    );
+                }
+            }
+        }
+
+        // 域侧被禁用且此前活跃 → 立即撤销全部会话（ADR-08 缺口三）
+        if (updates.status === 0) {
+            await this.userTokenService.revokeAllTokens(existing.id);
+        }
+    }
+
+    /**
+     * 批量应用域用户清单（定时/手动触发同步的入口）
+     *
+     * 行为：
+     * - 本地已存在 → 属性/部门/状态同步
+     * - 本地不存在且未禁用 → 自动建档（首登建档同一套规则）
+     * - 域内消失的活跃 CONSOLE 账号不动（可能来自 Excel 导入而非域）
+     */
+    async applyAdUsers(list: AdUserInfo[]): Promise<{ provisioned: number; updated: number; disabled: number }> {
+        const result = { provisioned: 0, updated: 0, disabled: 0 };
+        for (const info of list) {
+            try {
+                const existing = await this.findOne({ where: { username: info.username } });
+                if (!existing) {
+                    if (info.disabled) continue; // 已禁用的陌生域账号不建档
+                    await this.provisionFromAd(info);
+                    result.provisioned += 1;
+                    continue;
+                }
+                const wasActive = !isDisabled(existing.status);
+                await this.applyAdUser(existing as User, info);
+                if (info.disabled && wasActive) result.disabled += 1;
+                else result.updated += 1;
+            } catch (err) {
+                // 单个用户失败不阻断整批
+                continue;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 按 OU 链确保部门存在并返回部门 id 列表（对齐员工导入的建部门规则）
+     *
+     * ouNames 自内向外，如 ["研发组", "技术中心"] →
+     * 一级部门「技术中心」+ 二级部门「研发组」（挂同名一级下）；
+     * 只有一个 OU 时视为一级部门。
+     */
+    private async ensureDepartmentsFromOu(ouNames: string[]): Promise<string[]> {
+        // 一级部门名 / 二级部门名（挂在某一级名下）
+        let l1Name: string | null = null;
+        let l2Name: string | null = null;
+        if (ouNames.length >= 2) {
+            l1Name = ouNames[1]!;
+            l2Name = ouNames[0]!;
+        } else if (ouNames.length === 1) {
+            l1Name = ouNames[0]!;
+        }
+        if (!l1Name) return [];
+
+        const ids: string[] = [];
+        const all = await this.departmentRepository.find();
+        const byKey = new Map(all.map((d) => [`${d.level}:${d.name}`, d]));
+
+        let l1 = byKey.get(`1:${l1Name}`);
+        if (!l1) {
+            const rootDept = all.find((d) => d.level === 1 && d.system === 1) ?? null;
+            l1 = await this.departmentRepository.save(
+                this.departmentRepository.create({
+                    name: l1Name,
+                    parentId: rootDept ? rootDept.id : null,
+                    level: 1,
+                    system: 0,
+                }),
+            );
+        }
+        ids.push(l1.id);
+
+        if (l2Name) {
+            let l2 = all.find((d) => d.level === 2 && d.name === l2Name && d.parentId === l1.id);
+            if (!l2) {
+                l2 = await this.departmentRepository.save(
+                    this.departmentRepository.create({
+                        name: l2Name,
+                        parentId: l1.id,
+                        level: 2,
+                        system: 0,
+                    }),
+                );
+            }
+            ids.push(l2.id);
+        }
+        return ids;
     }
 }

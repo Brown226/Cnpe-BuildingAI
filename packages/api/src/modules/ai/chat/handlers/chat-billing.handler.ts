@@ -26,11 +26,11 @@ export class ChatBillingHandler {
     constructor(private readonly appBillingService: AppBillingService) {}
 
     /**
-     * 全局计费开关：SERVER_BILLING_ENABLED=false 时为企业免费模式，
-     * 不校验余额、不产生任何扣费。
+     * 全局计费开关：仅当 SERVER_BILLING_ENABLED=true 时计费生效，
+     * 缺省或为 false 即企业免费模式，不校验余额、不产生任何扣费。
      */
     private isBillingEnabled(): boolean {
-        return process.env.SERVER_BILLING_ENABLED !== "false";
+        return process.env.SERVER_BILLING_ENABLED === "true";
     }
 
     async validateUserPower(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuthStore } from "@buildingai/stores";
+import { useAuthStore, useConfigStore } from "@buildingai/stores";
 import { LucideIcon } from "@buildingai/ui/components/lucide-icon";
 import {
   Collapsible,
@@ -30,6 +30,8 @@ import dynamicIconImports from "lucide-react/dynamicIconImports";
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 
+import { ENTERPRISE_HIDDEN_CONSOLE_MENU_PATHS } from "@/utils/enterprise-mode";
+
 /**
  * Filter visible menu items (type !== 3 && isHidden !== 1)
  */
@@ -39,6 +41,18 @@ function filterVisibleMenus(menus: MenuItem[]): MenuItem[] {
     .map((menu) => ({
       ...menu,
       children: menu.children ? filterVisibleMenus(menu.children) : [],
+    }));
+}
+
+/**
+ * 企业免费模式下去掉后台商业菜单（财务管理/营销中心/订单管理及其子树）
+ */
+function filterEnterpriseHiddenMenus(menus: MenuItem[]): MenuItem[] {
+  return menus
+    .filter((menu) => !ENTERPRISE_HIDDEN_CONSOLE_MENU_PATHS.includes(menu.path))
+    .map((menu) => ({
+      ...menu,
+      children: menu.children ? filterEnterpriseHiddenMenus(menu.children) : [],
     }));
 }
 
@@ -186,11 +200,14 @@ function NavMenuGroup({ group }: { group: MenuItem }) {
 
 export function NavMain() {
   const { userInfo } = useAuthStore((state) => state.auth);
+  const billingEnabled =
+    useConfigStore((state) => state.config)?.websiteConfig?.features?.billingEnabled ?? false;
 
   const menuGroups = useMemo(() => {
     if (!userInfo?.menus) return [];
-    return filterVisibleMenus(userInfo.menus);
-  }, [userInfo?.menus]);
+    const visible = filterVisibleMenus(userInfo.menus);
+    return billingEnabled ? visible : filterEnterpriseHiddenMenus(visible);
+  }, [userInfo?.menus, billingEnabled]);
 
   return (
     <>
