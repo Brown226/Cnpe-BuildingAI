@@ -59,11 +59,23 @@ export function installAppModeFilter(app: NestExpressApplication): void {
     );
     const servesAdminStatic = existsSync(adminIndexPath);
 
+    // 静态放行不得覆盖 API 面：业务前缀（api/v1/gateway）在管理进程必须一律 404
+    const webPrefix = (process.env.VITE_APP_WEB_API_PREFIX || "api").replace(/^\/+/, "");
+    const deniedApiPrefixes = [consolePrefix, webPrefix, "v1", "gateway"];
+
     app.use((req: Request, res: Response, next: NextFunction) => {
         const path = (req.path || "").replace(/^\/+/, "");
         const apiOk = path === consolePrefix || path.startsWith(`${consolePrefix}/`);
         const healthOk = path === "health" || path.startsWith("health/");
-        if (apiOk || healthOk || servesAdminStatic) {
+        if (apiOk || healthOk) {
+            next();
+            return;
+        }
+        const isApiPath = deniedApiPrefixes.some(
+            (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+        );
+        if (servesAdminStatic && !isApiPath) {
+            // 管理端构建产物就绪后放行静态资源（管理面 API 不在其列）
             next();
             return;
         }

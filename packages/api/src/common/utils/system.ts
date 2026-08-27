@@ -129,7 +129,12 @@ export const setAssetsDir = async (app: NestExpressApplication) => {
 
     const dirs: Record<string, any>[] = [
         {
-            dir: path.join(rootDir, "public", "web"),
+            // 端分离(ADR-S01)：管理进程根静态指向 public/admin，其余进程指向 C 端 public/web
+            dir: path.join(
+                rootDir,
+                "public",
+                process.env.ADMIN_MODE === "admin" ? "admin" : "web",
+            ),
             prefix: "/",
         },
         {
