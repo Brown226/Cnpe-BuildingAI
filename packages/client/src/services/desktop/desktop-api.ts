@@ -157,6 +157,14 @@ export const desktopApi = {
         return rpc("office.parse", { path });
     },
 
+    /** 执行命令（策略管控：黑名单硬拒/白名单放行/审批） */
+    execRun(
+        command: string,
+        cwd: string,
+    ): Promise<{ exitCode: number; stdout?: string; stderr?: string; timedOut?: boolean }> {
+        return rpc("exec.run", { command, cwd });
+    },
+
     /** T2.3 结构化读取 xlsx（首工作表 → 二维数组，前端表格编辑器用） */
     officeReadXlsx(
         path: string,

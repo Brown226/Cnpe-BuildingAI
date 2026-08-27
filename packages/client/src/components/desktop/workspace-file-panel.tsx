@@ -7,6 +7,7 @@
 import {
   ArrowDownAZ,
   ArrowUpAZ,
+  Branch,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -29,6 +30,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { desktopApi, onAgentEvent } from "@/services/desktop/desktop-api";
 import { useDesktop } from "./desktop-provider";
+import { GitPanel } from "./git-panel";
 
 type Entry = { name: string; type: "file" | "dir"; size?: number; mtimeMs?: number };
 interface RecentFile {
@@ -53,7 +55,7 @@ export function WorkspaceFilePanel({
   embedded?: boolean;
 }) {
   const { desktop, selectedWorkspace, refreshWorkspacesSignal } = useDesktop();
-  const [tab, setTab] = useState<"files" | "preview">("files");
+  const [tab, setTab] = useState<"files" | "preview" | "git">("files");
   const [tree, setTree] = useState<Record<string, Entry[]>>({});
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -444,6 +446,18 @@ export function WorkspaceFilePanel({
             />
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => setTab("git")}
+          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
+            tab === "git"
+              ? "border-primary font-medium"
+              : "text-muted-foreground border-transparent hover:text-foreground"
+          }`}
+        >
+          <Branch className="size-4" />
+          Git
+        </button>
         <div className="flex-1" />
         <button
           type="button"
@@ -455,7 +469,9 @@ export function WorkspaceFilePanel({
         </button>
       </div>
 
-      {tab === "files" ? (
+      {tab === "git" ? (
+        <GitPanel />
+      ) : tab === "files" ? (
         <>
           {/* 工作区标题行：名称 + AZ 排序 + 刷新 */}
           <div className="flex items-center gap-1.5 border-b px-3 py-2">
