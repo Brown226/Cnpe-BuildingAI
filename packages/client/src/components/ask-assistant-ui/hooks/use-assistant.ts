@@ -21,6 +21,8 @@ export interface UseAssistantOptions {
   providers: AiProvider[];
   suggestions?: Suggestion[];
   enableThinking?: boolean;
+  /** 分屏双开：覆盖路由 id 固定绑定该会话（T2.1 split view） */
+  threadIdOverride?: string;
 }
 
 function buildMessageRecords(
@@ -167,6 +169,7 @@ export function useAssistant(options: UseAssistantOptions): AssistantContextValu
     pendingParentIdRef,
     conversationIdRef,
     prevThreadIdRef,
+    threadIdOverride: options.threadIdOverride,
   });
   const streamMessagesRef = useRef<UIMessage[]>([]);
   streamMessagesRef.current = streamMessages;

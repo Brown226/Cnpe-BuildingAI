@@ -22,6 +22,12 @@ export interface LocalThread {
     folderId?: string | null;
     /** 会话模式（T1.1 双模式）：code | work；缺省 code（旧数据兼容） */
     mode?: "code" | "work";
+    /** 置顶（T2.1 会话管理） */
+    pinned?: boolean;
+    /** 未读标记（后台任务/自动化产生新消息时置位） */
+    unread?: boolean;
+    /** 手动排序权重（T2.1 拖拽排序；排序优先级：pinned > order > updatedAt） */
+    order?: number;
 }
 
 export interface WorkspaceFolder {
@@ -99,6 +105,9 @@ export function appendThreadMessages(
         archived: existing?.archived ?? false,
         folderId: existing?.folderId ?? null,
         mode: existing?.mode ?? mode ?? "code",
+        pinned: existing?.pinned ?? false,
+        unread: existing?.unread ?? false,
+        order: existing?.order ?? Date.now(),
     };
     const ids = Object.keys(store);
     if (ids.length > MAX_THREADS) {
@@ -110,7 +119,8 @@ export function appendThreadMessages(
     saveAll(store);
 }
 
-/** 按工作区列会话；mode 缺省不过滤（兼容旧调用与统计） */
+/** 按工作区列会话；mode 缺省不过滤（兼容旧调用与统计）。
+ * 排序：置顶优先 → 手动 order → updatedAt 倒序（T2.1 拖拽排序语义）。 */
 export function listThreadsByWorkspace(
     workspaceId: string,
     mode?: "code" | "work",
@@ -121,6 +131,71 @@ export function listThreadsByWorkspace(
                 t.workspaceId === workspaceId &&
                 t.archived !== true &&
                 (mode === undefined || (t.mode ?? "code") === mode),
+        )
+        .sort((a, b) => {
+            const pa = a.pinned ? 1 : 0;
+            const pb = b.pinned ? 1 : 0;
+            if (pa !== pb) return pb - pa;
+            const oa = a.order ?? a.updatedAt;
+            const ob = b.order ?? b.updatedAt;
+            if (oa !== ob) return ob - oa;
+            return b.updatedAt - a.updatedAt;
+        });
+}
+
+// ── T2.1 会话管理：置顶 / 未读 / 手动排序 / 全文搜索 ─────────────────
+
+export function pinThread(id: string, pinned: boolean): void {
+    const store = loadAll();
+    if (store[id]) {
+        store[id]!.pinned = pinned;
+        saveAll(store);
+    }
+}
+
+export function setThreadUnread(id: string, unread: boolean): void {
+    const store = loadAll();
+    if (store[id]) {
+        store[id]!.unread = unread;
+        saveAll(store);
+    }
+}
+
+/** 拖拽排序：按拖拽后的完整顺序重写 order（0..n），pinned 不受影响 */
+export function reorderThreads(orderedIds: string[]): void {
+    const store = loadAll();
+    const rank = new Map(orderedIds.map((id, i) => [id, orderedIds.length - i]));
+    let changed = false;
+    for (const id of orderedIds) {
+        const t = store[id];
+        if (t && t.order !== rank.get(id)) {
+            t.order = rank.get(id);
+            changed = true;
+        }
+    }
+    if (changed) saveAll(store);
+}
+
+/** 全文搜索：标题 + 消息文本（大小写不敏感）；可按工作区/模式过滤 */
+export function searchThreads(
+    query: string,
+    opts?: { workspaceId?: string | null; mode?: "code" | "work" },
+): LocalThread[] {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return Object.values(loadAll())
+        .filter(
+            (t) =>
+                t.archived !== true &&
+                (opts?.workspaceId === undefined ||
+                    opts.workspaceId === null ||
+                    t.workspaceId === opts.workspaceId) &&
+                (opts?.mode === undefined || (t.mode ?? "code") === opts.mode),
+        )
+        .filter(
+            (t) =>
+                t.title.toLowerCase().includes(q) ||
+                t.messages.some((m) => m.text.toLowerCase().includes(q)),
         )
         .sort((a, b) => b.updatedAt - a.updatedAt);
 }

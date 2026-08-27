@@ -27,6 +27,7 @@ import AlipayReturnPage from "../pages/payment/alipay-return";
 import { DesktopProjectsSection } from "@/components/desktop/sidebar-projects-section";
 import { ModeTabs } from "@/components/desktop/mode-tabs";
 import { DesktopRightPanel } from "@/components/desktop/desktop-right-panel";
+import { SplitPill } from "@/components/desktop/split-pill";
 
 export const router = createBrowserRouter([
   {
@@ -85,7 +86,12 @@ export const router = createBrowserRouter([
         element: (
           <DefaultLayout
             extraSidebarContent={<DesktopProjectsSection />}
-            headerContent={<ModeTabs />}
+            headerContent={
+              <div className="flex w-full items-center justify-between">
+                <ModeTabs />
+                <SplitPill />
+              </div>
+            }
             rightPanelContent={<DesktopRightPanel />}
           />
         ),

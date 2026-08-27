@@ -5,11 +5,16 @@ import {
   useChatConfigQuery,
   useConversationQuery,
 } from "@buildingai/services/web";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import type { Suggestion } from "@/components/ask-assistant-ui";
 import { AssistantProvider, Chat, useAssistant } from "@/components/ask-assistant-ui";
+import { getLocalThread } from "@/services/desktop/thread-store";
+import {
+  getSplitSessionId,
+  SPLIT_CHANGED_EVENT,
+} from "@/services/desktop/split-store";
 
 const DEFAULT_SUGGESTIONS: Suggestion[] = [
   { id: "1", text: "如何开始使用 React Hooks？" },
@@ -30,6 +35,14 @@ const IndexPage = () => {
   const { data: rawChatConfig } = useChatConfigQuery();
   const chatConfig = rawChatConfig as ChatConfig | undefined;
 
+  // 分屏副会话（T2.1 split view）
+  const [splitId, setSplitId] = useState<string | null>(() => getSplitSessionId());
+  useEffect(() => {
+    const handler = () => setSplitId(getSplitSessionId());
+    window.addEventListener(SPLIT_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(SPLIT_CHANGED_EVENT, handler);
+  }, []);
+
   useDocumentHead({
     title: id ? conversation?.title || "新对话" : "新对话",
   });
@@ -46,8 +59,15 @@ const IndexPage = () => {
   const welcomeInfo = chatConfig?.welcomeInfo;
 
   const assistant = useAssistant({ providers, suggestions });
+  // 分屏副实例：hooks 不可条件调用，splitId 为空时 override 传 undefined（无副作用）
+  const splitAssistant = useAssistant({
+    providers,
+    suggestions,
+    threadIdOverride: splitId ?? undefined,
+  });
+  const splitThread = splitId ? getLocalThread(splitId) : null;
 
-  return (
+  const mainChat = (
     <AssistantProvider {...assistant} showMcpToolDetails={chatConfig?.showMcpToolDetails ?? true}>
       <Chat
         title={conversation?.title || "新对话"}
@@ -57,6 +77,29 @@ const IndexPage = () => {
       />
     </AssistantProvider>
   );
+
+  if (splitId) {
+    return (
+      <div className="grid h-full min-h-0 grid-cols-2 divide-x">
+        <div className="min-h-0 min-w-0">{mainChat}</div>
+        <div className="min-h-0 min-w-0">
+          <AssistantProvider
+            {...splitAssistant}
+            showMcpToolDetails={chatConfig?.showMcpToolDetails ?? true}
+          >
+            <Chat
+              title={splitThread?.title || "分屏会话"}
+              welcomeTitle={welcomeInfo?.title}
+              welcomeDescription={welcomeInfo?.description}
+              footerText={welcomeInfo?.footer}
+            />
+          </AssistantProvider>
+        </div>
+      </div>
+    );
+  }
+
+  return mainChat;
 };
 
 export default IndexPage;

@@ -10,11 +10,14 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  Columns2,
   ExternalLink,
   FolderOpen,
   FolderPlus,
   Pencil,
+  Pin,
   Plus,
+  Search,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -46,11 +49,15 @@ import {
   listThreadsByWorkspace,
   loadExpanded,
   moveThreadToFolder,
+  pinThread,
   renameFolder,
   renameThread,
+  reorderThreads,
   saveExpanded,
+  searchThreads,
   type LocalThread,
 } from "@/services/desktop/thread-store";
+import { setSplitSessionId } from "@/services/desktop/split-store";
 import type { WorkspaceEntry } from "@/services/desktop/workspace-types";
 
 type MenuState = {
@@ -84,6 +91,7 @@ export function DesktopProjectsSection() {
   const [menu, setMenu] = useState<MenuState>(null);
   const [expandedIds, setExpandedIds] = useState<string[]>(() => loadExpanded());
   const [dragThread, setDragThread] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const bump = () => setVersion((v) => v + 1);
 
@@ -189,6 +197,39 @@ export function DesktopProjectsSection() {
         </button>
       </SidebarGroupLabel>
       <SidebarGroupContent>
+        {/* T2.1 全文搜索（标题 + 消息内容，按当前模式过滤） */}
+        <div className="relative px-2 pb-1.5">
+          <Search className="text-muted-foreground absolute top-1/2 left-3.5 size-3 -translate-y-1/2" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索会话（标题/内容）"
+            className="border-input bg-background placeholder:text-muted-foreground h-7 w-full rounded-md border pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        {query.trim() !== "" && (
+          <div className="px-2 pb-2">
+            {searchThreads(query, { mode: activeMode }).length === 0 ? (
+              <div className="text-muted-foreground px-1 py-2 text-[11px]">无匹配会话</div>
+            ) : (
+              <div className="flex flex-col gap-px">
+                {searchThreads(query, { mode: activeMode })
+                  .slice(0, 20)
+                  .map((t) => (
+                    <ThreadRow
+                      key={t.id}
+                      thread={t}
+                      depth={0}
+                      onOpen={() => navigate(`/chat/${t.id}`)}
+                      onContextMenu={(e) => openMenu(e, "thread", { id: t.workspaceId ?? "", name: "" } as WorkspaceEntry, { thread: t })}
+                      onDragStart={() => undefined}
+                    />
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
         <SidebarMenu>
           {workspaces.length === 0 && (
             <div className="text-muted-foreground px-2 py-3 text-xs leading-5">
@@ -278,6 +319,19 @@ export function DesktopProjectsSection() {
                                 onOpen={() => navigate(`/chat/${t.id}`)}
                                 onContextMenu={(e) => openMenu(e, "thread", w, { thread: t })}
                                 onDragStart={() => setDragThread(t.id)}
+                                onDrop={() => {
+                                  if (!dragThread || dragThread === t.id) return setDragThread(null);
+                                  const ids = folderThreads.map((x) => x.id);
+                                  const from = ids.indexOf(dragThread);
+                                  const to = ids.indexOf(t.id);
+                                  if (from >= 0 && to >= 0) {
+                                    ids.splice(from, 1);
+                                    ids.splice(to, 0, dragThread);
+                                    reorderThreads(ids);
+                                    bump();
+                                  }
+                                  setDragThread(null);
+                                }}
                               />
                             ))}
                             {folderThreads.length === 0 && (
@@ -299,6 +353,19 @@ export function DesktopProjectsSection() {
                         onOpen={() => navigate(`/chat/${t.id}`)}
                         onContextMenu={(e) => openMenu(e, "thread", w, { thread: t })}
                         onDragStart={() => setDragThread(t.id)}
+                        onDrop={() => {
+                          if (!dragThread || dragThread === t.id) return setDragThread(null);
+                          const ids = rootThreads.map((x) => x.id);
+                          const from = ids.indexOf(dragThread);
+                          const to = ids.indexOf(t.id);
+                          if (from >= 0 && to >= 0) {
+                            ids.splice(from, 1);
+                            ids.splice(to, 0, dragThread);
+                            reorderThreads(ids);
+                            bump();
+                          }
+                          setDragThread(null);
+                        }}
                       />
                     ))}
                     {rootThreads.length === 0 && folders.length === 0 && (
@@ -385,6 +452,23 @@ export function DesktopProjectsSection() {
           {menu.kind === "thread" && menu.thread && (
             <>
               <MenuRow
+                icon={<Pin className="size-3.5" />}
+                label={menu.thread.pinned ? "取消置顶" : "置顶"}
+                onClick={() => {
+                  pinThread(menu.thread!.id, !menu.thread!.pinned);
+                  bump();
+                  setMenu(null);
+                }}
+              />
+              <MenuRow
+                icon={<Columns2 className="size-3.5" />}
+                label="在分屏中打开"
+                onClick={() => {
+                  setSplitSessionId(menu.thread!.id);
+                  setMenu(null);
+                }}
+              />
+              <MenuRow
                 icon={<Pencil className="size-3.5" />}
                 label="重命名"
                 onClick={() => {
@@ -458,20 +542,36 @@ function ThreadRow({
   onOpen,
   onContextMenu,
   onDragStart,
+  onDrop,
 }: {
   thread: LocalThread;
   depth: number;
   onOpen: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onDragStart: () => void;
+  /** T2.1 拖拽排序：拖到本行时触发重排 */
+  onDrop?: () => void;
 }) {
   return (
     <SidebarMenuSubItem
       draggable
       onDragStart={() => onDragStart()}
+      onDragOver={(e) => {
+        if (onDrop) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (onDrop) {
+          e.preventDefault();
+          onDrop();
+        }
+      }}
       style={depth > 0 ? { paddingLeft: 14 } : undefined}
     >
       <SidebarMenuSubButton onClick={onOpen} onContextMenu={onContextMenu} className="h-7">
+        {thread.pinned && <Pin className="text-primary size-3 shrink-0 fill-current" />}
+        {thread.unread && (
+          <span className="bg-primary size-1.5 shrink-0 rounded-full" title="未读" />
+        )}
         <span className="line-clamp-1 flex-1 text-xs">{thread.title}</span>
         <span className="text-muted-foreground shrink-0 text-[10px]">
           {formatThreadTime(thread.updatedAt)}

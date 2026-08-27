@@ -56,6 +56,8 @@ export interface UseChatStreamOptions {
   pendingParentIdRef: React.RefObject<string | null>;
   conversationIdRef: React.RefObject<string | undefined>;
   prevThreadIdRef: React.RefObject<string | undefined>;
+  /** 分屏双开：覆盖路由 id，固定绑定该会话（T2.1 split view） */
+  threadIdOverride?: string;
 }
 
 export interface UseChatStreamReturn {
@@ -88,7 +90,8 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
     prevThreadIdRef,
   } = options;
 
-  const { id: currentThreadId } = useParams<{ id: string }>();
+  const { id: routeThreadId } = useParams<{ id: string }>();
+  const currentThreadId = options.threadIdOverride ?? routeThreadId;
   const navigate = useNavigate();
   const location = useLocation();
   const token = useAuthStore((state) => state.auth.token);
@@ -600,11 +603,16 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
 
       // 桌面本地会话：无路由 id 时先生成（url 仅为前端语义），
       // 并把线程上下文交给 transport（会话持久化的归属键）
+      // 分屏副会话（threadIdOverride）：始终有固定 id，不跳路由
       let localThreadId = currentThreadId;
       if (isDesktop()) {
         if (!localThreadId) {
-          localThreadId = crypto.randomUUID();
-          navigate(`/chat/${localThreadId}`, { replace: true });
+          if (options.threadIdOverride) {
+            localThreadId = options.threadIdOverride;
+          } else {
+            localThreadId = crypto.randomUUID();
+            navigate(`/chat/${localThreadId}`, { replace: true });
+          }
         }
         getDesktopAgentTransport().setThreadContext({
           threadId: localThreadId,
