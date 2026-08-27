@@ -215,12 +215,19 @@ rpc.register("initialize", (params) => {
                 "fs.list",
                 "fs.read",
                 "fs.write",
+                "fs.create",
+                "fs.rename",
+                "fs.delete",
                 "exec.run",
                 "policy.getMode",
                 "policy.setMode",
                 "workspace.list",
                 "workspace.add",
                 "workspace.remove",
+                "workspace.setActive",
+                "office.parse",
+                "office.exportDocx",
+                "office.exportXlsx",
             ],
             engineReady: false,
         },
@@ -296,6 +303,23 @@ rpc.register("workspace.remove", (params) => {
     return { removed: workspaces.remove(String(dir)) };
 });
 
+/**
+ * 激活工作区（复刻 openwork "激活=列表首位" 语义）：
+ * 置顶白名单并把引擎默认 cwd 切到该目录——已存在的会话保持原 cwd，
+ * 新建会话即落入新激活目录。
+ */
+rpc.register("workspace.setActive", (params) => {
+    requireInitialized();
+    const dir = str(params, "dir");
+    const list = workspaces.list();
+    const hit = list.find((l) => l.toLowerCase() === dir.toLowerCase());
+    if (!hit)
+        throw new RpcError(RpcErrorCodes.InvalidParams, `该目录不在工作区列表：${dir}`);
+    workspaces.setAll([hit, ...list.filter((l) => l !== hit)]);
+    process.env.AGENT_CORE_WORKSPACE = hit;
+    return { active: hit };
+});
+
 // ── 文件操作 ───────────────────────────────────────────────────────────
 
 rpc.register("fs.list", (params) => {
@@ -316,6 +340,25 @@ rpc.register("fs.write", async (params) => {
     if (!p?.path || typeof p.content !== "string")
         throw new RpcError(RpcErrorCodes.InvalidParams, "fs.write 需要 path 与 content");
     return fileTools.write(p.path, p.content);
+});
+
+rpc.register("fs.create", async (params) => {
+    requireInitialized();
+    const p = params as { path?: string; type?: string };
+    if (!p?.path || !p.type) throw new RpcError(RpcErrorCodes.InvalidParams, "fs.create 需要 path 与 type");
+    return fileTools.createEntry(p.path, p.type === "directory" ? "directory" : "file");
+});
+
+rpc.register("fs.rename", async (params) => {
+    requireInitialized();
+    const p = params as { path?: string; newName?: string };
+    if (!p?.path || !p.newName) throw new RpcError(RpcErrorCodes.InvalidParams, "fs.rename 需要 path 与 newName");
+    return fileTools.renameEntry(p.path, p.newName);
+});
+
+rpc.register("fs.delete", async (params) => {
+    requireInitialized();
+    return fileTools.deleteEntry(str(params, "path"));
 });
 
 // ── 命令执行 ───────────────────────────────────────────────────────────

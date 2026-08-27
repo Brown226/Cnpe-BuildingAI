@@ -35,6 +35,16 @@ export function startAgentEngine(scriptPath?: string): Promise<void> {
     return invoke("agent_start", { script: scriptPath ?? null, nodeBin: null, cwd: null });
 }
 
+/** 系统目录选择框（用户取消返回 null） */
+export function pickFolder(): Promise<string | null> {
+    return invoke("pick_folder") as Promise<string | null>;
+}
+
+/** 在系统文件管理器中定位文件/目录 */
+export function revealPath(path: string): Promise<void> {
+    return invoke("reveal_path", { path });
+}
+
 /** 通用 RPC 调用 */
 export function rpc<T = Record<string, unknown>>(method: string, params?: Record<string, unknown>): Promise<T> {
     return invoke("agent_rpc", { method, params: params ?? {} }) as Promise<T>;
@@ -89,5 +99,32 @@ export const desktopApi = {
 
     respondApproval(requestId: string, approved: boolean, reason?: string): Promise<void> {
         return notify("approval/respond", { requestId, approved, reason });
+    },
+
+    /** 列目录（懒加载文件树用） */
+    fsList(dir: string): Promise<{ entries: Array<{ name: string; type: "file" | "dir"; size?: number }> }> {
+        return rpc("fs.list", { dir });
+    },
+
+    /** 读文本（512KB 截断） */
+    fsRead(path: string): Promise<{ content: string; truncated: boolean }> {
+        return rpc("fs.read", { path });
+    },
+
+    fsCreate(path: string, type: "file" | "directory"): Promise<{ path: string }> {
+        return rpc("fs.create", { path, type });
+    },
+
+    fsRename(path: string, newName: string): Promise<{ path: string }> {
+        return rpc("fs.rename", { path, newName });
+    },
+
+    fsDelete(path: string): Promise<{ deleted: boolean }> {
+        return rpc("fs.delete", { path });
+    },
+
+    /** 激活工作区（置顶 + 引擎新会话 cwd 切换） */
+    workspaceSetActive(dir: string): Promise<{ active: string }> {
+        return rpc("workspace.setActive", { dir });
     },
 };

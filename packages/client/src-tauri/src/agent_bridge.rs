@@ -182,6 +182,22 @@ pub fn agent_stop(state: tauri::State<'_, AgentBridgeState>) -> Result<(), Strin
     Ok(())
 }
 
+/// 系统目录选择框（复刻 Kun workspace:pick-directory）：用户取消返回 None
+#[tauri::command]
+pub fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .file()
+        .blocking_pick_folder()
+        .map(|p| p.to_string())
+}
+
+/// 在系统文件管理器中定位文件/目录
+#[tauri::command]
+pub fn reveal_path(path: String) -> Result<(), String> {
+    tauri_plugin_opener::reveal_item_in_dir(&path).map_err(|e| e.to_string())
+}
+
 fn write_line(
     stdin: &Arc<Mutex<Option<ChildStdin>>>,
     frame: &RpcLine,

@@ -4,12 +4,15 @@ mod agent_bridge;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(agent_bridge::AgentBridgeState::default())
         .invoke_handler(tauri::generate_handler![
             agent_bridge::agent_start,
             agent_bridge::agent_rpc,
             agent_bridge::agent_notify,
-            agent_bridge::agent_stop
+            agent_bridge::agent_stop,
+            agent_bridge::pick_folder,
+            agent_bridge::reveal_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -7,10 +7,19 @@ import {
     desktopApi,
     isDesktop,
     onAgentEvent,
+    pickFolder,
     startAgentEngine,
     stopAgentEngine,
     type ApprovalRequestPayload,
 } from "@/services/desktop/desktop-api";
+import {
+    basename,
+    loadWorkspaces,
+    makeWorkspaceEntry,
+    saveWorkspaces,
+    upsertEntry,
+} from "@/services/desktop/workspace-store";
+import type { WorkspaceEntry } from "@/services/desktop/workspace-types";
 
 interface DesktopContextValue {
     /** 是否处于桌面客户端环境 */
@@ -20,6 +29,16 @@ interface DesktopContextValue {
     pendingApprovals: ApprovalRequestPayload[];
     respond: (requestId: string, approved: boolean, reason?: string) => void;
     refreshWorkspacesSignal: number;
+    /** 记忆的工作区列表（localStorage 持久化） */
+    workspaces: WorkspaceEntry[];
+    /** 当前选中的工作区 */
+    selectedWorkspace: WorkspaceEntry | null;
+    /** 系统目录框选择并添加工作区 */
+    addWorkspaceByPicker: () => Promise<void>;
+    /** 切换工作区（置顶 + 引擎激活） */
+    selectWorkspace: (entry: WorkspaceEntry) => Promise<void>;
+    /** 移除工作区（连带 sidecar 白名单） */
+    removeWorkspace: (entry: WorkspaceEntry) => Promise<void>;
 }
 
 const DesktopContext = createContext<DesktopContextValue>({
@@ -28,11 +47,17 @@ const DesktopContext = createContext<DesktopContextValue>({
     pendingApprovals: [],
     respond: () => undefined,
     refreshWorkspacesSignal: 0,
+    workspaces: [],
+    selectedWorkspace: null,
+    addWorkspaceByPicker: async () => undefined,
+    selectWorkspace: async () => undefined,
+    removeWorkspace: async () => undefined,
 });
 
 /**
  * 桌面端全局 Provider：负责拉起 sidecar、完成 initialize 握手、
- * 订阅引擎事件并把审批请求汇入卡片队列。
+ * 订阅引擎事件并把审批请求汇入卡片队列；同时持有工作区记忆列表
+ * （复刻 Kun"路径+记忆列表"模型，持久化在 localStorage）。
  * 非桌面（浏览器）环境下为空实现，不影响网页版。
  */
 export function DesktopProvider({ children }: { children: ReactNode }) {
@@ -44,11 +69,80 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
     const [ready, setReady] = useState(false);
     const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequestPayload[]>([]);
     const [refreshWorkspacesSignal, setRefreshWorkspacesSignal] = useState(0);
+    const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const selectedWorkspace = useMemo(
+        () => workspaces.find((w) => w.id === selectedId) ?? null,
+        [workspaces, selectedId],
+    );
 
     const respond = useCallback((requestId: string, approved: boolean, reason?: string) => {
         void desktopApi.respondApproval(requestId, approved, reason);
         setPendingApprovals((list) => list.filter((a) => a.requestId !== requestId));
         if (!approved && reason) toast.info(reason);
+    }, []);
+
+    // 启动时恢复记忆列表（非桌面环境读到的为空，无副作用）
+    useEffect(() => {
+        if (!desktop) return;
+        const persisted = loadWorkspaces();
+        setWorkspaces(persisted.items);
+        setSelectedId(persisted.selectedId);
+    }, [desktop]);
+
+    const activateOnEngine = useCallback((path: string) => {
+        // 引擎未就绪时静默失败：initialize 时已通过 pack.workspaces 注入
+        void desktopApi.workspaceSetActive(path).catch(() => undefined);
+    }, []);
+
+    const selectWorkspace = useCallback(
+        async (entry: WorkspaceEntry) => {
+            setSelectedId(entry.id);
+            const persisted = loadWorkspaces();
+            saveWorkspaces({ ...persisted, selectedId: entry.id });
+            activateOnEngine(entry.path);
+            setRefreshWorkspacesSignal((n) => n + 1);
+        },
+        [activateOnEngine],
+    );
+
+    const addWorkspaceByPath = useCallback(
+        async (path: string) => {
+            const entry = await makeWorkspaceEntry(path);
+            const persisted = loadWorkspaces();
+            const { items, deduped } = upsertEntry(persisted.items, entry);
+            const nextSelectedId = entry.id;
+            setWorkspaces(items);
+            setSelectedId(nextSelectedId);
+            saveWorkspaces({ items, selectedId: nextSelectedId });
+            // sidecar 白名单幂等添加；激活放 initialize/setActive 链路
+            void desktopApi.workspaceAdd(path).catch(() => undefined);
+            activateOnEngine(path);
+            setRefreshWorkspacesSignal((n) => n + 1);
+            toast.success(deduped ? `已切换到工作区 ${basename(path)}` : `已添加工作区 ${basename(path)}`);
+        },
+        [activateOnEngine],
+    );
+
+    const addWorkspaceByPicker = useCallback(async () => {
+        try {
+            const dir = await pickFolder();
+            if (!dir) return;
+            await addWorkspaceByPath(dir);
+        } catch (err) {
+            toast.error(`添加工作区失败：${String(err)}`);
+        }
+    }, [addWorkspaceByPath]);
+
+    const removeWorkspace = useCallback(async (entry: WorkspaceEntry) => {
+        const persisted = loadWorkspaces();
+        const items = persisted.items.filter((it) => it.id !== entry.id);
+        const selectedId2 = persisted.selectedId === entry.id ? (items[0]?.id ?? null) : persisted.selectedId;
+        setWorkspaces(items);
+        setSelectedId(selectedId2);
+        saveWorkspaces({ items, selectedId: selectedId2 });
+        void desktopApi.workspaceRemove(entry.path).catch(() => undefined);
+        setRefreshWorkspacesSignal((n) => n + 1);
     }, []);
 
     useEffect(() => {
@@ -82,15 +176,23 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                 }
 
                 await startAgentEngine();
+                // 记忆工作区随配置包注入 sidecar 白名单（Kun 启动恢复语义）
+                const persisted = loadWorkspaces();
                 await desktopApi.initialize({
                     serverUrl: serverBase,
                     token: token as string,
                     userId,
                     policy: { mode: policyMode },
+                    workspaces: persisted.items.map((w) => w.path),
                 });
                 if (disposed) return;
                 setReady(true);
                 setRefreshWorkspacesSignal((n) => n + 1);
+
+                // 恢复上次激活的工作区（引擎新会话 cwd）
+                const selected =
+                    persisted.items.find((w) => w.id === persisted.selectedId) ?? persisted.items[0];
+                if (selected) activateOnEngine(selected.path);
 
                 unlisten = await onAgentEvent((frame) => {
                     const method = frame.method ?? "";
@@ -123,11 +225,33 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             void stopAgentEngine();
         };
         // 登录态变化时重建连接
-    }, [desktop, token, userId]);
+    }, [desktop, token, userId, activateOnEngine]);
 
     const value = useMemo(
-        () => ({ desktop, ready, pendingApprovals, respond, refreshWorkspacesSignal }),
-        [desktop, ready, pendingApprovals, respond, refreshWorkspacesSignal],
+        () => ({
+            desktop,
+            ready,
+            pendingApprovals,
+            respond,
+            refreshWorkspacesSignal,
+            workspaces,
+            selectedWorkspace,
+            addWorkspaceByPicker,
+            selectWorkspace,
+            removeWorkspace,
+        }),
+        [
+            desktop,
+            ready,
+            pendingApprovals,
+            respond,
+            refreshWorkspacesSignal,
+            workspaces,
+            selectedWorkspace,
+            addWorkspaceByPicker,
+            selectWorkspace,
+            removeWorkspace,
+        ],
     );
 
     return <DesktopContext.Provider value={value}>{children}</DesktopContext.Provider>;

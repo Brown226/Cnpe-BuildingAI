@@ -21,6 +21,7 @@ import { useImagePreview } from "@/components/image-preview";
 import { PromptInput } from "./components/input/prompt-input";
 import { Suggestions } from "./components/input/suggestions";
 import { MessageItem } from "./components/message/message-item";
+import { WorkspacePicker } from "@/components/desktop/workspace-picker";
 import { ModelSelector } from "./components/model-selector";
 import { useAssistantContext } from "./context";
 
@@ -53,6 +54,7 @@ const ChatHeader = memo(function ChatHeader({
   return (
     <header className="bg-background relative flex flex-row-reverse items-center justify-between px-4 py-2 md:flex-row">
       <div className="flex shrink-0 items-center gap-2">
+        <WorkspacePicker />
         <ModelSelector
           models={models}
           onModelChange={onSelectModel}
