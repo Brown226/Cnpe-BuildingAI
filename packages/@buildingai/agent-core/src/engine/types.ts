@@ -39,6 +39,8 @@ export interface EngineStartConfig {
     defaultModel?: ModelRef;
     /** 会话数据（正文）落盘目录；默认仅存本地 */
     storageDir: string;
+    /** 管理员下发的技能（T4.4 技能市场），注入会话上下文 */
+    skills?: Array<{ name: string; description: string; content: string }>;
 }
 
 export interface ModelRef {

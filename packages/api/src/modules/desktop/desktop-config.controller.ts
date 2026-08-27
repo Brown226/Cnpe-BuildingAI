@@ -45,22 +45,24 @@ export class DesktopConfigController {
         private readonly dictRepository: Repository<Dict>,
     ) {}
 
-    /** 登录后拉取配置包：默认权限模式 + 策略键表 + 出网白名单 */
+    /** 登录后拉取配置包：默认权限模式 + 策略键表 + 出网白名单 + 技能列表 */
     @Get("config")
     async config(@Req() req: unknown): Promise<{
         defaultPolicyMode: string;
         policyKeys: Record<DesktopPolicyKey, boolean>;
         egressAllowlist: string[];
+        skills: Array<{ name: string; description: string; content: string }>;
         revision: number;
     }> {
         const deptId = (req as { user?: { departmentId?: string; deptId?: string } }).user?.departmentId
             ?? (req as { user?: { deptId?: string } }).user?.deptId;
-        const [policyKeys, egressAllowlist] = await Promise.all([
+        const [policyKeys, egressAllowlist, skills] = await Promise.all([
             this.loadPolicyKeys(deptId),
             this.loadEgressAllowlist(),
+            this.loadSkills(),
         ]);
         const globalMode = process.env.DESKTOP_DEFAULT_POLICY_MODE ?? "balanced";
-        return { defaultPolicyMode: globalMode, policyKeys, egressAllowlist, revision: POLICY_REVISION };
+        return { defaultPolicyMode: globalMode, policyKeys, egressAllowlist, skills, revision: POLICY_REVISION };
     }
 
     /** 心跳（T4.2 强制在线）：JWT 校验通过即在线；桌面端离线时锁定功能 */
@@ -79,6 +81,34 @@ export class DesktopConfigController {
             if (!row) return [];
             const parsed: unknown = JSON.parse(row.value);
             return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+        } catch {
+            return [];
+        }
+    }
+
+    /** 技能列表（T4.4 管理员发布制）：dict group=desktop_skills，每条 key=技能名，
+     *  value=JSON {description, content}。员工登录拉取后随配置包注入本地引擎。 */
+    private async loadSkills(): Promise<Array<{ name: string; description: string; content: string }>> {
+        try {
+            const rows = await this.dictRepository.find({
+                where: { group: "desktop_skills", isEnabled: true },
+            });
+            const out: Array<{ name: string; description: string; content: string }> = [];
+            for (const row of rows) {
+                try {
+                    const parsed = JSON.parse(row.value) as { description?: string; content?: string };
+                    const content = parsed.content?.trim();
+                    if (!content) continue;
+                    out.push({
+                        name: row.key,
+                        description: parsed.description ?? row.key,
+                        content,
+                    });
+                } catch {
+                    /* 单条技能解析失败跳过 */
+                }
+            }
+            return out;
         } catch {
             return [];
         }

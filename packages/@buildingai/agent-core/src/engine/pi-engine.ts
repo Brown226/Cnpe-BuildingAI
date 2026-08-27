@@ -377,12 +377,16 @@ export class PiEngine implements AgentEngine {
         const cwd = workspaceRoot!;
         const agentDir = mkdtempSync(join(tmpdir(), `agent-dir-${randomUUID().slice(0, 8)}-`));
 
+        // T1.1 模式指令 + T4.4 管理员下发技能，均作为第二 system 消息注入（前缀之后、动态数据之前）
+        const skillInstructions = (this.startConfig?.skills ?? []).map(
+            (s) => `【技能：${s.name}】${s.description}\n${s.content}`,
+        );
         const resourceLoader = new DefaultResourceLoader({
             cwd,
             agentDir,
             systemPrompt: PLATFORM_SYSTEM_PROMPT,
             // T1.1 双模式：模式指令作为第二 system 消息注入（Kun 式，位于稳定前缀之后）
-            appendSystemPrompt: [MODE_INSTRUCTIONS[mode]],
+            appendSystemPrompt: [MODE_INSTRUCTIONS[mode], ...skillInstructions],
             noExtensions: true,
             noSkills: true,
             noPromptTemplates: true,

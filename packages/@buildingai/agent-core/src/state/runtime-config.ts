@@ -17,6 +17,8 @@ export interface ConfigPack {
     sessionsDir?: string;
     /** 出网白名单（T4.8）；空数组=不限制；配置后 agent 仅能访问白名单域名 */
     egressAllowlist?: string[];
+    /** 管理员下发的技能列表（T4.4 技能市场）；随会话上下文注入 */
+    skills?: Array<{ name: string; description: string; content: string }>;
 }
 
 class RuntimeConfigStore {

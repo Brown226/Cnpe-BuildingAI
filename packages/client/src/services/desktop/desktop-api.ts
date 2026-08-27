@@ -106,6 +106,7 @@ export const desktopApi = {
         policy?: { mode: string };
         workspaces?: string[];
         egressAllowlist?: string[];
+        skills?: Array<{ name: string; description: string; content: string }>;
     }): Promise<{ protocolVersion: string }> {
         return rpc("initialize", pack);
     },

@@ -329,6 +329,7 @@ async function bootstrapEngine(): Promise<void> {
                   }
                 : undefined,
             storageDir: ".",
+            skills: cfg.skills,
         });
         rpc.notify("engine/event", { kind: "engine_ready" });
     } catch (err) {

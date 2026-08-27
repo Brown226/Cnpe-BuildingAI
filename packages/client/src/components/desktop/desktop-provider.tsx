@@ -290,6 +290,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                 let policyMode = "balanced";
                 let fetchedPolicyKeys: Record<string, boolean> | null = null;
                 let fetchedEgressAllowlist: string[] = [];
+                let fetchedSkills: Array<{ name: string; description: string; content: string }> = [];
                 try {
                     const res = await fetch(`${serverBase}/api/desktop/config`, {
                         headers: { Authorization: token ? `Bearer ${token}` : "" },
@@ -299,6 +300,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                             defaultPolicyMode?: string;
                             policyKeys?: Record<string, boolean>;
                             egressAllowlist?: string[];
+                            skills?: Array<{ name: string; description: string; content: string }>;
                         };
                         if (
                             cfg?.defaultPolicyMode &&
@@ -311,6 +313,9 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                         }
                         if (Array.isArray(cfg?.egressAllowlist)) {
                             fetchedEgressAllowlist = cfg.egressAllowlist;
+                        }
+                        if (Array.isArray(cfg?.skills)) {
+                            fetchedSkills = cfg.skills;
                         }
                     }
                 } catch {
@@ -328,6 +333,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                     policy: { mode: policyMode },
                     workspaces: persisted.items.map((w) => w.path),
                     egressAllowlist: fetchedEgressAllowlist,
+                    skills: fetchedSkills,
                 });
                 if (disposed) return;
                 setReady(true);
