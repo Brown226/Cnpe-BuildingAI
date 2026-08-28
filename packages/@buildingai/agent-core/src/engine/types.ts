@@ -41,6 +41,8 @@ export interface EngineStartConfig {
     storageDir: string;
     /** 管理员下发的技能（T4.4 技能市场），注入会话上下文 */
     skills?: Array<{ name: string; description: string; content: string }>;
+    /** Pi 官方扩展入口文件列表（pi.dev/packages 收录的 pi-extension 包），经 jiti 加载 */
+    extensionPaths?: string[];
 }
 
 export interface ModelRef {

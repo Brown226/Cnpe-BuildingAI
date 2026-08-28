@@ -391,6 +391,9 @@ export class PiEngine implements AgentEngine {
             systemPrompt: PLATFORM_SYSTEM_PROMPT,
             // T1.1 双模式：模式指令作为第二 system 消息注入（Kun 式，位于稳定前缀之后）
             appendSystemPrompt: [MODE_INSTRUCTIONS[mode], ...skillInstructions, ...agentInstructions],
+            // Pi 官方扩展（todo/计划/子代理/结构化提问等）：noExtensions 只关自动发现，
+            // additionalExtensionPaths 显式加载（resource-loader L270：noExtensions 下仍生效）
+            additionalExtensionPaths: this.startConfig?.extensionPaths ?? [],
             noExtensions: true,
             noSkills: true,
             noPromptTemplates: true,

@@ -395,6 +395,39 @@ rpc.register("initialize", (params) => {
     };
 });
 
+/**
+ * 随装 Pi 官方扩展（pi.dev/packages 收录，npm 月下载量选型）：
+ * - @juicesharp/rpiv-todo            todo 工具 + 会话级任务清单（②Todo Tab 数据源）
+ * - @juicesharp/rpiv-ask-user-question 结构化提问工具（计划确认/澄清交互）
+ * - @narumitw/pi-plan-mode            Codex 式只读计划模式（④计划面板）
+ * - @tintinweb/pi-subagents           Claude Code 同名子代理工具（③子代理卡片）
+ * 入口以包内 pi.extensions 声明为准；缺失时跳过（可选依赖）。
+ */
+const BUNDLED_PI_EXTENSIONS: Array<[string, string]> = [
+    ["@juicesharp/rpiv-todo", "index.ts"],
+    ["@juicesharp/rpiv-ask-user-question", "index.ts"],
+    ["@narumitw/pi-plan-mode", "dist/index.ts"],
+    ["@tintinweb/pi-subagents", "src/index.ts"],
+    ["@ff-labs/pi-fff", "src/index.ts"],
+];
+
+function resolveBundledExtensionPaths(): string[] {
+    const fromEnv = process.env.AGENT_CORE_EXTENSIONS;
+    if (fromEnv) {
+        return fromEnv
+            .split(/[;,]/)
+            .map((p) => p.trim())
+            .filter(Boolean);
+    }
+    const paths: string[] = [];
+    for (const [pkg, entry] of BUNDLED_PI_EXTENSIONS) {
+        const file = join(PKG_ROOT, "node_modules", pkg, entry);
+        if (fs.existsSync(file)) paths.push(file);
+        else logStderr(`Pi 扩展缺失（跳过）: ${pkg}`);
+    }
+    return paths;
+}
+
 /** initialize 之后的异步引导：启动引擎（模型端点 + 工具注册），幂等 */
 let engineBooted = false;
 async function bootstrapEngine(): Promise<void> {
@@ -405,6 +438,8 @@ async function bootstrapEngine(): Promise<void> {
         const cfg = runtimeConfig.require()!;
         // 开发直连优先（DEV_MODEL_BASE_URL 存在时跳过网关），生产走服务端网关（ADR-05）
         const devDirect = Boolean(process.env.DEV_MODEL_BASE_URL);
+        const extensionPaths = resolveBundledExtensionPaths();
+        if (extensionPaths.length > 0) logStderr(`加载 Pi 扩展 ${extensionPaths.length} 个`);
         await engine.start({
             modelGatewayUrl: devDirect ? "" : joinUrl(cfg.serverUrl, "/api/gateway"),
             gatewayToken: devDirect ? "" : cfg.token,
@@ -416,6 +451,7 @@ async function bootstrapEngine(): Promise<void> {
                 : undefined,
             storageDir: ".",
             skills: cfg.skills,
+            extensionPaths,
         });
         rpc.notify("engine/event", { kind: "engine_ready" });
     } catch (err) {
