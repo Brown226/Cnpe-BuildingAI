@@ -2,6 +2,7 @@ import { toast } from "sonner";
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createContext } from "react";
 import { WifiOff } from "lucide-react";
+import { getVersion } from "@tauri-apps/api/app";
 import { useAuthStore } from "@buildingai/stores";
 
 import {
@@ -118,6 +119,18 @@ function loadMode(): "code" | "work" {
     } catch {
         return "code";
     }
+}
+
+/** T4.10 版本比较：a 是否严格高于 b（semver 数字逐段比较） */
+function isNewerVersion(a: string, b: string): boolean {
+    const pa = a.split(".").map((x) => Number.parseInt(x, 10) || 0);
+    const pb = b.split(".").map((x) => Number.parseInt(x, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+        const x = pa[i] ?? 0;
+        const y = pb[i] ?? 0;
+        if (x !== y) return x > y;
+    }
+    return false;
 }
 
 /**
@@ -274,6 +287,46 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             clearInterval(timer);
         };
     }, [desktop, token]);
+
+    // T4.10 版本管控：登录后拉取版本清单，比对当前版本，有新版本弹提示。
+    // alpha 通道受 allowAlphaUpdates 策略键门控；forceUpdate 标记"必须更新"。
+    useEffect(() => {
+        if (!desktop || !token) return;
+        let disposed = false;
+        const serverBase = import.meta.env.VITE_APP_API_URL ?? window.location.origin;
+        void (async () => {
+            try {
+                const [releaseRes, currentVersion] = await Promise.all([
+                    fetch(`${serverBase}/api/desktop/release`, {
+                        headers: { Authorization: token ? `Bearer ${token}` : "" },
+                    }),
+                    getVersion().catch(() => null),
+                ]);
+                if (disposed || !currentVersion || !releaseRes.ok) return;
+                const release = (await releaseRes.json()) as {
+                    version?: string;
+                    channel?: string;
+                    downloadUrl?: string;
+                    forceUpdate?: boolean;
+                    notes?: string;
+                } | null;
+                if (!release?.version) return;
+                if (release.channel === "alpha" && policyKeys?.allowAlphaUpdates !== true) return;
+                if (isNewerVersion(release.version, currentVersion)) {
+                    const flag = release.forceUpdate ? "（必须更新）" : "";
+                    toast.info(`发现新版本 ${release.version}${flag}`, {
+                        description: release.notes || "请在管理员处获取安装包更新",
+                        duration: 8000,
+                    });
+                }
+            } catch {
+                /* 版本检查失败静默 */
+            }
+        })();
+        return () => {
+            disposed = true;
+        };
+    }, [desktop, token, policyKeys]);
 
     useEffect(() => {
         if (!desktop || !token) return;

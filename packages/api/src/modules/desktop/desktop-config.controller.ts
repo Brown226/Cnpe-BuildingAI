@@ -32,6 +32,15 @@ const DEFAULT_POLICY: Record<DesktopPolicyKey, boolean> = {
 const POLICY_GROUP = "desktop_policy";
 const POLICY_REVISION = 3;
 
+/** 桌面版本清单（T4.10 版本管控） */
+export interface DesktopRelease {
+    version: string;
+    channel: "stable" | "alpha";
+    downloadUrl: string;
+    forceUpdate: boolean;
+    notes: string;
+}
+
 /**
  * 桌面配置下发端点（T4.5）：默认权限模式 + 策略键表。
  * 策略优先级：部门覆盖组(desktop_policy:{deptId}) > 全局组(desktop_policy) > 默认值。
@@ -69,6 +78,32 @@ export class DesktopConfigController {
     @Get("heartbeat")
     heartbeat(): { ok: true; now: string } {
         return { ok: true, now: new Date().toISOString() };
+    }
+
+    /** 版本清单（T4.10 版本管控）：dict group=desktop_release key=release，
+     *  value=JSON {version, channel, downloadUrl, forceUpdate, notes}；未配置返回 null（不提示更新）。 */
+    @Get("release")
+    async release(): Promise<DesktopRelease | null> {
+        return this.loadRelease();
+    }
+
+    private async loadRelease(): Promise<DesktopRelease | null> {
+        try {
+            const row = await this.dictRepository.findOne({
+                where: { group: "desktop_release", key: "release", isEnabled: true },
+            });
+            if (!row) return null;
+            const parsed = JSON.parse(row.value) as Partial<DesktopRelease>;
+            return {
+                version: String(parsed.version ?? "0.0.0"),
+                channel: parsed.channel === "alpha" ? "alpha" : "stable",
+                downloadUrl: String(parsed.downloadUrl ?? ""),
+                forceUpdate: Boolean(parsed.forceUpdate),
+                notes: String(parsed.notes ?? ""),
+            };
+        } catch {
+            return null;
+        }
     }
 
     /** 出网白名单（T4.8）：dict group=desktop_egress，value 为 JSON 数组（域名，支持 *.corp.com 通配）；
