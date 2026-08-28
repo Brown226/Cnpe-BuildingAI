@@ -194,24 +194,30 @@ export class PiEngine implements AgentEngine {
                             push({ type: "thinking_delta", delta: ame.delta });
                         else if (ame.type === "toolcall_start") {
                             const idx = String(ame.contentIndex ?? "0");
-                            const callId = `tc-${idx}-${Date.now()}`;
-                            const toolName = extractToolCallInfo(ame).name ?? "tool";
+                            const info = extractToolCallInfo(ame);
+                            // 真实 callId（模型 toolCall.id）：与 tool_execution_* 事件对齐
+                            const callId = String(info.id ?? `tc-${idx}-${Date.now()}`);
+                            const toolName = info.name ?? "tool";
+                            const argsJson =
+                                info.args !== undefined && info.args !== null
+                                    ? JSON.stringify(info.args).slice(0, 4096)
+                                    : "";
                             // 开始即推送，前端可即时显示"正在执行工具"占位
                             push({
                                 type: "tool_call_start",
                                 callId,
                                 name: toolName,
-                                argsPreview: "",
+                                argsPreview: argsJson,
                             });
                             stepToolCalls.set(idx, {
                                 name: toolName,
                                 startedAt: Date.now(),
                                 ok: false,
                                 callId,
-                                args: "",
+                                args: argsJson,
                             });
                         } else if (ame.type === "toolcall_delta") {
-                            // 参数以 JSON 流式下发：累积兜底（end 事件 partial 里通常是完整 arguments）
+                            // 参数以 JSON 流式下发：累积兜底（执行事件里才是完整参数/结果）
                             const idx = String(ame.contentIndex ?? "0");
                             const call = stepToolCalls.get(idx);
                             if (call && typeof ame.delta === "string" && call.args.length < 8192)
@@ -224,7 +230,7 @@ export class PiEngine implements AgentEngine {
                                 name: info.name ?? prev?.name ?? "tool",
                                 startedAt: prev?.startedAt ?? Date.now(),
                                 ok: true,
-                                callId: prev?.callId ?? `tc-${idx}-${Date.now()}`,
+                                callId: prev?.callId ?? String(info.id ?? `tc-${idx}-${Date.now()}`),
                                 args:
                                     info.args !== undefined
                                         ? JSON.stringify(info.args).slice(0, 4096)
@@ -236,16 +242,8 @@ export class PiEngine implements AgentEngine {
                     case "message_end": {
                         const message = event.message as Record<string, any> | undefined;
                         if (message?.role !== "assistant") break;
-                        for (const [, call] of stepToolCalls)
-                            push({
-                                type: "tool_call_end",
-                                callId: call.callId,
-                                ok: call.ok,
-                                durationMs: Date.now() - call.startedAt,
-                                name: call.name,
-                                resultPreview: call.args || undefined,
-                            });
-                        stepToolCalls = new Map();
+                        // 注意：assistant 消息结束时工具尚未执行（stopReason=toolUse 后才执行），
+                        // tool_call_end 由 tool_execution_end 事件推送（携带真实结果）。
                         const usage = message.usage as Record<string, number> | undefined;
                         if (usage) {
                             const inputTokens = usage.input ?? usage.promptTokens ?? 0;
@@ -269,6 +267,56 @@ export class PiEngine implements AgentEngine {
                                 cacheWriteTokens,
                             });
                         }
+                        break;
+                    }
+                    case "tool_execution_start": {
+                        // 工具真实执行开始：补全参数（与 assistantMessageEvent 的 callId 对齐）
+                        const callId = String(event.toolCallId ?? "");
+                        const call = [...stepToolCalls.values()].find((c) => c.callId === callId);
+                        if (call) {
+                            try {
+                                call.args = JSON.stringify(event.args ?? {}).slice(0, 4096);
+                            } catch {
+                                /* 参数不可序列化时保留占位 */
+                            }
+                        }
+                        break;
+                    }
+                    case "tool_execution_end": {
+                        // 工具执行完成：立即推送携带真实结果的 tool_call_end（Todo/子代理卡片取数）
+                        const callId = String(event.toolCallId ?? "");
+                        const entry = [...stepToolCalls.entries()].find(
+                            ([, c]) => c.callId === callId,
+                        );
+                        let resultPreview: string | undefined;
+                        try {
+                            if (event.result !== undefined)
+                                resultPreview = JSON.stringify(event.result).slice(0, 16384);
+                        } catch {
+                            /* 结果不可序列化时省略 */
+                        }
+                        push({
+                            type: "tool_call_end",
+                            callId,
+                            ok: !event.isError,
+                            durationMs: entry ? Date.now() - entry[1].startedAt : 0,
+                            name: entry?.[1].name ?? String(event.toolName ?? "tool"),
+                            resultPreview,
+                        });
+                        if (entry) stepToolCalls.delete(entry[0]);
+                        break;
+                    }
+                    case "turn_end": {
+                        // 回合收尾：未执行完（中止等场景）的工具调用以失败收尾
+                        for (const [, call] of stepToolCalls)
+                            push({
+                                type: "tool_call_end",
+                                callId: call.callId,
+                                ok: false,
+                                durationMs: Date.now() - call.startedAt,
+                                name: call.name,
+                            });
+                        stepToolCalls = new Map();
                         break;
                     }
                     default:
