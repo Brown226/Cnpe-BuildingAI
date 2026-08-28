@@ -52,10 +52,14 @@ import { McpSelector } from "../mcp-selector";
 import { VoiceInput } from "./voice-input";
 import { AgentPicker } from "../agent-picker";
 import { FileMentionMenu } from "../file-mention-menu";
+import { SlashCommandMenu } from "../slash-command-menu";
 import { useComposerFileMentions } from "../../hooks/use-composer-file-mentions";
+import { useComposerSlashCommandMenu } from "../../hooks/use-composer-slash-command-menu";
 import type { ComposerFileReference } from "../../libs/composer-file-references";
 import { useDesktop } from "@/components/desktop/desktop-provider";
+import { archiveThread } from "@/services/desktop/thread-store";
 import { useAssistantStore } from "@buildingai/stores";
+import { useNavigate, useParams } from "react-router-dom";
 
 export type PromptInputHiddenTool =
   | "more"
@@ -268,6 +272,28 @@ const PromptInputInner = memo(
       onRemove: (path) => syncReferences(references.filter((r) => r.relativePath !== path)),
     });
 
+    // 斜杠命令（对齐 Kun FloatingComposerSlashCommandMenu）
+    const { setMode } = useDesktop();
+    const navigate = useNavigate();
+    const { id: currentThreadId } = useParams<{ id: string }>();
+    const slash = useComposerSlashCommandMenu({
+      enabled: desktop,
+      input: controller.textInput.value,
+      canCreateNewThread: true,
+      activeThreadId: currentThreadId ?? null,
+      busy: false,
+      menuBlocked: false,
+      textareaRef,
+      onSelect: (commandId) => {
+        if (commandId === "new") navigate("/chat");
+        else if (commandId === "code") setMode("code");
+        else if (commandId === "work") setMode("work");
+        else if (commandId === "archive" && currentThreadId) archiveThread(currentThreadId);
+        controller.textInput.setInput("");
+      },
+      onDismiss: () => undefined,
+    });
+
     /**
      * Handle paste event with file type validation
      */
@@ -393,6 +419,7 @@ const PromptInputInner = memo(
     const handleTextareaKeyDown = useCallback(
       (event: KeyboardEvent<HTMLTextAreaElement>) => {
         if (mention.handleKeyDown(event, event.nativeEvent.isComposing)) return;
+        if (slash.handleKeyDown(event, event.nativeEvent.isComposing)) return;
         if (
           isConversationInProgress &&
           event.key === "Enter" &&
@@ -402,7 +429,7 @@ const PromptInputInner = memo(
           event.preventDefault();
         }
       },
-      [isConversationInProgress, mention],
+      [isConversationInProgress, mention, slash],
     );
 
     return (
@@ -421,6 +448,14 @@ const PromptInputInner = memo(
             onSelect={mention.applySuggestion}
           />
         )}
+        {slash.showMenu && (
+          <SlashCommandMenu
+            commands={slash.filteredCommands}
+            highlighted={slash.highlightedCommand}
+            selectedIndex={slash.selectedIndex}
+            onSelect={slash.selectCommand}
+          />
+        )}
         <PromptInputAttachmentsList />
         <AIPromptInputBody>
           <AIPromptInputTextarea
@@ -428,7 +463,10 @@ const PromptInputInner = memo(
             onFocus={onTextareaFocus}
             onKeyDown={handleTextareaKeyDown}
             onPaste={handlePaste}
-            onSelect={() => mention.syncCursor()}
+            onSelect={() => {
+              mention.syncCursor();
+              slash.syncCursor();
+            }}
           />
         </AIPromptInputBody>
         <AIPromptInputFooter className="h-13 py-0">
