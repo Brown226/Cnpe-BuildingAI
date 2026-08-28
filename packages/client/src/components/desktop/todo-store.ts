@@ -40,7 +40,13 @@ export const useTodoStore = create<TodoStoreState>((set) => ({
         })),
 }));
 
+/**
+ * 空清单常量：zustand v5 的 selector 经 useSyncExternalStore 做快照比对，
+ * 每次返回新 [] 会导致快照永不稳定 → 无限重渲染（React error #185）。
+ */
+const EMPTY_TODOS: TodoTask[] = [];
+
 /** 读取当前激活会话的待办清单 */
 export function selectActiveTodos(state: TodoStoreState): TodoTask[] {
-    return state.todosByChat[state.activeChatId] ?? [];
+    return state.todosByChat[state.activeChatId] ?? EMPTY_TODOS;
 }

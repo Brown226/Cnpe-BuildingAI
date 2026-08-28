@@ -4,8 +4,8 @@
     "version": "0.0.0",
     "type": "module",
     "scripts": {
-        "dev": "vite",
-        "dev:desktop": "tauri dev",
+        "dev": "cross-env NODE_ENV=development vite",
+        "dev:desktop": "cross-env NODE_ENV=development tauri dev",
         "build:web": "cross-env NODE_OPTIONS=--max-old-space-size=3072 vite build && node ../../scripts/release.mjs",
         "build:desktop": "tauri build",
         "check-types": "tsc --noEmit -p tsconfig.app.json",

@@ -28,7 +28,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- React Fast Refresh 运行时：plugin-react 6 在 rolldown-vite 下自动注入失效，手动内联 -->
+    <!-- React Fast Refresh 运行时：plugin-react 6 在 rolldown-vite 下不会自动注入，手动内联（仅 dev 生效，构建产物不含 /@react-refresh） -->
     <script type="module">
       import RefreshRuntime from "/@react-refresh";
       RefreshRuntime.injectIntoGlobalHook(window);
