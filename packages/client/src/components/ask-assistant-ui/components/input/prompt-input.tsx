@@ -51,6 +51,7 @@ import type { Model } from "../../types";
 import { McpSelector } from "../mcp-selector";
 import { VoiceInput } from "./voice-input";
 import { AgentPicker } from "../agent-picker";
+import { UsageBadge } from "../usage-badge";
 import { FileMentionMenu } from "../file-mention-menu";
 import { SlashCommandMenu } from "../slash-command-menu";
 import { useComposerFileMentions } from "../../hooks/use-composer-file-mentions";
@@ -472,6 +473,7 @@ const PromptInputInner = memo(
         <AIPromptInputFooter className="h-13 py-0">
           <AIPromptInputTools>
             {!hiddenSet.has("more") && <AgentPicker />}
+            {desktop && <UsageBadge />}
             {(() => {
               const showFile =
                 availableFileTypes.length > 0 && !hiddenSet.has("file") && !hiddenSet.has("more");

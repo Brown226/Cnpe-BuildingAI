@@ -11,12 +11,16 @@ export interface AssistantState {
     composerAgentId: string;
     /** 输入条已引用的工作区文件（relativePath 列表，发送时内容注入 prompt） */
     composerFileReferences: string[];
+    /** 当前会话 token 用量（input=最近一轮，output/cache=累计） */
+    sessionUsage: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
 }
 
 export interface AssistantActions {
     setSelectedModelId: (id: string) => void;
     setComposerAgentId: (id: string) => void;
     setComposerFileReferences: (paths: string[]) => void;
+    recordSessionUsage: (usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number }) => void;
+    resetSessionUsage: () => void;
 }
 
 export type AssistantSlice = AssistantState & AssistantActions;
@@ -30,6 +34,17 @@ export const createAssistantSlice: StateCreator<AssistantSlice, [], [], Assistan
     setComposerAgentId: (id) => set({ composerAgentId: id }),
     composerFileReferences: [],
     setComposerFileReferences: (paths) => set({ composerFileReferences: paths }),
+    sessionUsage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+    recordSessionUsage: (usage) =>
+        set((state) => ({
+            sessionUsage: {
+                inputTokens: usage.inputTokens,
+                outputTokens: state.sessionUsage.outputTokens + usage.outputTokens,
+                cacheReadTokens: state.sessionUsage.cacheReadTokens + usage.cacheReadTokens,
+            },
+        })),
+    resetSessionUsage: () =>
+        set({ sessionUsage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 } }),
 });
 
 export const useAssistantStore = createStore<AssistantSlice>(createAssistantSlice, {
@@ -45,6 +60,7 @@ export const useAssistantStore = createStore<AssistantSlice>(createAssistantSlic
                 selectedModelId: p?.selectedModelId ?? current.selectedModelId,
                 composerAgentId: p?.composerAgentId ?? current.composerAgentId,
                 composerFileReferences: current.composerFileReferences,
+                sessionUsage: current.sessionUsage,
             };
         },
         migrate: (storage) => {

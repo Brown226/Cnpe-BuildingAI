@@ -10,6 +10,7 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 
 import { onAgentEvent, rpc } from "./desktop-api";
 import { appendThreadMessages, type LocalThreadMessage } from "./thread-store";
+import { useAssistantStore } from "@buildingai/stores";
 
 /** sidecar 事件形态（对应 agent-core EngineEvent） */
 interface EngineEventDto {
@@ -238,20 +239,18 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                         break;
                     }
                     case "usage": {
-                        // T1.2 缓存可观测 + 计费用量采集预留：
-                        // 引擎侧已 logStderr 命中率；前端仅透传记录
+                        // T1.2 缓存可观测 + T4.6 计量上报 + ①-4 用量历史展示
                         const u = ev as unknown as {
                             inputTokens?: number;
                             outputTokens?: number;
                             cacheReadTokens?: number;
                             cacheWriteTokens?: number;
                         };
-                        const total = u.inputTokens ?? 0;
-                        const hit =
-                            total > 0 ? Math.round(((u.cacheReadTokens ?? 0) / total) * 100) : 0;
-                        console.debug(
-                            `[desktop] usage in=${u.inputTokens} out=${u.outputTokens} cacheRead=${u.cacheReadTokens} hit≈${hit}%`,
-                        );
+                        useAssistantStore.getState().recordSessionUsage({
+                            inputTokens: u.inputTokens ?? 0,
+                            outputTokens: u.outputTokens ?? 0,
+                            cacheReadTokens: u.cacheReadTokens ?? 0,
+                        });
                         break;
                     }
                     case "error": {
