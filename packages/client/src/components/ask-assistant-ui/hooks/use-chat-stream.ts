@@ -614,11 +614,11 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
   );
 
   const send = useCallback(
-    (
+    async (
       content: string,
       parentId?: string | null,
       files?: Array<{ type: "file"; url: string; mediaType?: string; filename?: string }>,
-      options?: { baseMessages?: UIMessage[] },
+      options?: { baseMessages?: UIMessage[]; threadIdOverride?: string },
     ) => {
       const currentStatus = statusRef.current;
       if (currentStatus === "submitted" || currentStatus === "streaming") return;
@@ -640,7 +640,7 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
       let localThreadId = currentThreadId;
       if (isDesktop()) {
         if (!localThreadId) {
-          if (options.threadIdOverride) {
+          if (options?.threadIdOverride) {
             localThreadId = options.threadIdOverride;
           } else {
             localThreadId = crypto.randomUUID();
