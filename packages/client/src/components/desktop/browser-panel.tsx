@@ -13,7 +13,7 @@ import { useDesktop } from "./desktop-provider";
 const PANEL_WIDTH = 720;
 const PANEL_HEIGHT = 560;
 
-export function BrowserPanel() {
+export function BrowserPanel({ embedded = false }: { embedded?: boolean }) {
   const { desktop } = useDesktop();
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
@@ -46,7 +46,12 @@ export function BrowserPanel() {
     [boundsOf],
   );
 
-  // 打开时同步 bounds（浮层变化后 webview 对齐）
+  // 内嵌（右栏 tab）模式：首次挂载自动打开默认页
+  useEffect(() => {
+    if (embedded && desktop && !open) void doOpen();
+  }, [embedded, desktop, open, doOpen]);
+
+  // 打开时同步 bounds（布局变化后 webview 对齐）
   useEffect(() => {
     if (!open || !desktop) return;
     const sync = () => {
@@ -80,7 +85,7 @@ export function BrowserPanel() {
     }
   };
 
-  if (!open) {
+  if (!embedded && !open) {
     return (
       <button
         type="button"
@@ -96,8 +101,12 @@ export function BrowserPanel() {
   return (
     <div
       ref={containerRef}
-      className="bg-background fixed right-2 top-14 z-40 flex flex-col rounded-lg border shadow-lg"
-      style={{ width: PANEL_WIDTH, height: PANEL_HEIGHT }}
+      className={
+        embedded
+          ? "flex h-full min-h-0 flex-col"
+          : "bg-background fixed right-2 top-14 z-40 flex flex-col rounded-lg border shadow-lg"
+      }
+      style={embedded ? undefined : { width: PANEL_WIDTH, height: PANEL_HEIGHT }}
     >
       <div className="flex shrink-0 items-center gap-1.5 border-b px-2 py-1.5">
         <button type="button" onClick={() => void browserApi.goBack()} title="后退" className="text-muted-foreground hover:text-foreground rounded p-1">
@@ -121,9 +130,11 @@ export function BrowserPanel() {
         <button type="button" onClick={() => void doOpen()} title="打开新页面" className="text-muted-foreground hover:text-foreground shrink-0 rounded border px-2 py-0.5 text-xs">
           打开
         </button>
-        <button type="button" onClick={() => void doClose()} title="关闭浏览器" className="text-muted-foreground hover:text-foreground rounded p-1">
-          <X className="size-4" />
-        </button>
+        {!embedded && (
+          <button type="button" onClick={() => void doClose()} title="关闭浏览器" className="text-muted-foreground hover:text-foreground rounded p-1">
+            <X className="size-4" />
+          </button>
+        )}
       </div>
       <div className="text-muted-foreground min-h-0 flex-1 bg-muted/40 px-3 py-2 text-[11px]">
         浏览器视图已就位：在此区域下方点击「打开」加载页面，agent 可在对话中驱动导航/采集。

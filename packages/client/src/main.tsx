@@ -15,7 +15,6 @@ import { SettingsDialogProvider } from "./components/settings-dialog";
 import { DesktopProvider } from "./components/desktop/desktop-provider";
 import { DesktopShellWidgets } from "./components/desktop/desktop-shell-widgets";
 import { CommandPalette } from "./components/desktop/command-palette";
-import { BrowserPanel } from "./components/desktop/browser-panel";
 import { installGlobalKeymap } from "./services/desktop/keymap";
 import { defaultLocale, messages } from "./locales";
 import { router } from "./router";
@@ -47,7 +46,6 @@ createRoot(document.getElementById("root")!).render(
                   <RouterProvider router={router} />
                   <DesktopShellWidgets />
                   <CommandPalette />
-                  <BrowserPanel />
                 </DesktopProvider>
               </SettingsDialogProvider>
             </AlertDialogProvider>

@@ -16,6 +16,7 @@ import {
   FilePlus,
   FolderOpen,
   FolderPlus,
+  Globe,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -33,6 +34,7 @@ import ReactMarkdown from "react-markdown";
 import { desktopApi, onAgentEvent } from "@/services/desktop/desktop-api";
 import { useDesktop } from "./desktop-provider";
 import { GitPanel } from "./git-panel";
+import { BrowserPanel } from "./browser-panel";
 import { SlidesPreview } from "./slides-preview";
 import { MarkdownEditor } from "./markdown-editor";
 
@@ -71,7 +73,7 @@ export function WorkspaceFilePanel({
   embedded?: boolean;
 }) {
   const { desktop, selectedWorkspace, refreshWorkspacesSignal } = useDesktop();
-  const [tab, setTab] = useState<"files" | "preview" | "git">("files");
+  const [tab, setTab] = useState<"files" | "preview" | "git" | "browser">("files");
   const [tree, setTree] = useState<Record<string, Entry[]>>({});
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -537,6 +539,18 @@ export function WorkspaceFilePanel({
           <GitBranch className="size-4" />
           Git
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("browser")}
+          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
+            tab === "browser"
+              ? "border-primary font-medium"
+              : "text-muted-foreground border-transparent hover:text-foreground"
+          }`}
+        >
+          <Globe className="size-4" />
+          浏览器
+        </button>
         <div className="flex-1" />
         <button
           type="button"
@@ -548,7 +562,9 @@ export function WorkspaceFilePanel({
         </button>
       </div>
 
-      {tab === "git" ? (
+      {tab === "browser" ? (
+        <BrowserPanel embedded />
+      ) : tab === "git" ? (
         <GitPanel />
       ) : tab === "files" ? (
         <>
