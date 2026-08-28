@@ -10,6 +10,7 @@ import {
   GitBranch,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Copy,
   ExternalLink,
   File as FileIcon,
@@ -40,6 +41,7 @@ import { SlidesPreview } from "./slides-preview";
 import { MarkdownEditor } from "./markdown-editor";
 import { TodoPanel } from "./todo-panel";
 import { selectActiveTodos, useTodoStore } from "./todo-store";
+import { PlanPanel } from "./plan-panel";
 
 type Entry = { name: string; type: "file" | "dir"; size?: number; mtimeMs?: number };
 interface RecentFile {
@@ -76,7 +78,7 @@ export function WorkspaceFilePanel({
   embedded?: boolean;
 }) {
   const { desktop, selectedWorkspace, refreshWorkspacesSignal } = useDesktop();
-  const [tab, setTab] = useState<"files" | "todo" | "preview" | "git" | "browser">("files");
+  const [tab, setTab] = useState<"files" | "todo" | "plan" | "preview" | "git" | "browser">("files");
   // ② Todo Tab：待办计数徽标（todo 扩展快照经 transport 归档）
   const activeTodos = useTodoStore(selectActiveTodos);
   const todoCount = activeTodos.length;
@@ -552,6 +554,18 @@ export function WorkspaceFilePanel({
         </button>
         <button
           type="button"
+          onClick={() => setTab("plan")}
+          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
+            tab === "plan"
+              ? "border-primary font-medium"
+              : "text-muted-foreground border-transparent hover:text-foreground"
+          }`}
+        >
+          <ClipboardCheck className="size-4" />
+          计划
+        </button>
+        <button
+          type="button"
           onClick={() => setTab("git")}
           className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
             tab === "git"
@@ -589,6 +603,8 @@ export function WorkspaceFilePanel({
         <BrowserPanel embedded />
       ) : tab === "todo" ? (
         <TodoPanel />
+      ) : tab === "plan" ? (
+        <PlanPanel />
       ) : tab === "git" ? (
         <GitPanel />
       ) : tab === "files" ? (

@@ -11,6 +11,7 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import { onAgentEvent, rpc } from "./desktop-api";
 import { appendThreadMessages, type LocalThreadMessage } from "./thread-store";
 import { useAssistantStore } from "@buildingai/stores";
+import { usePlanStore } from "@/components/desktop/plan-store";
 import { useTodoStore, type TodoTask } from "@/components/desktop/todo-store";
 
 /** sidecar 事件形态（对应 agent-core EngineEvent） */
@@ -224,6 +225,17 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                             dynamic: true,
                             title: "执行工具",
                         });
+                        // ④ 计划面板：plan_mode_complete 的参数即完整实施计划（Markdown）
+                        if (ev.name === "plan_mode_complete" && ev.argsPreview) {
+                            try {
+                                const parsed = JSON.parse(ev.argsPreview) as { plan?: string };
+                                if (typeof parsed.plan === "string" && parsed.plan.trim()) {
+                                    usePlanStore.getState().applyPlan(chatId, parsed.plan);
+                                }
+                            } catch {
+                                /* 参数截断或非计划提交，忽略 */
+                            }
+                        }
                         break;
                     }
                     case "tool_call_end": {

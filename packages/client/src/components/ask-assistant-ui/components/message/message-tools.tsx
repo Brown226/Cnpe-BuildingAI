@@ -7,6 +7,7 @@ import { ImageGenerationTool } from "../tools/image-generation-tool";
 import { KnowledgeReferences } from "../tools/knowledge-references";
 import { PlanTool } from "../tools/plan-tool";
 import { WeatherTool } from "../tools/weather-tool";
+import { SubagentCard } from "./subagent-card";
 import { ChevronDown, ChevronRight, Wrench } from "lucide-react";
 
 interface ToolPartData {
@@ -127,6 +128,10 @@ const renderSinglePart = (
     part.type === "dynamic-tool"
       ? ((part as unknown as { toolName?: string }).toolName ?? "tool")
       : (part.type as string).replace("tool-", "");
+  // ③ 子代理卡片：pi-subagents 的 Agent 工具调用（args=task 描述，output=最终结果）
+  if (part.type === "dynamic-tool" && toolName === "Agent") {
+    return <SubagentCard key={key} toolPart={part as never} />;
+  }
   return <GenericTool key={key} toolName={toolName} toolPart={part} showDetails={showMcpToolDetails} />;
 };
 
