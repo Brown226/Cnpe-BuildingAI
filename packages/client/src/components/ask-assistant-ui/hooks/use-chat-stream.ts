@@ -14,6 +14,7 @@ import { desktopApi, isDesktop } from "@/services/desktop/desktop-api";
 import { getDesktopAgentTransport } from "@/services/desktop/desktop-agent-transport";
 import { getLocalThread, toUIMessages } from "@/services/desktop/thread-store";
 import { useDesktop } from "@/components/desktop/desktop-provider";
+import { buildComposerFileContextPrompt } from "../libs/composer-file-references";
 import { getApiBaseUrl } from "@/utils/api";
 
 /** 解析当前选中的智能体 persona 角色设定（对齐 Kun composerAgent） */
@@ -26,6 +27,24 @@ async function resolveAgentRole(): Promise<string | undefined> {
     } catch {
         return undefined;
     }
+}
+
+/** 文件 @ 提及生效：把已引用文件内容拼进上下文（对齐 Kun buildComposerFileContextPrompt） */
+async function resolveFileContext(text: string, workspaceRoot: string): Promise<string> {
+    const refs = useAssistantStore.getState().composerFileReferences;
+    if (refs.length === 0) return text;
+    const entries: Array<{ relativePath: string; content: string; truncated?: boolean }> = [];
+    for (const relativePath of refs) {
+        const absolutePath = `${workspaceRoot.replace(/[\\/]+$/, "")}\\${relativePath.replace(/\//g, "\\")}`;
+        try {
+            const r = await desktopApi.fsRead(absolutePath);
+            entries.push({ relativePath, content: r.content, truncated: r.truncated });
+        } catch {
+            /* 单文件读失败跳过，不阻断发送 */
+        }
+    }
+    if (entries.length === 0) return text;
+    return buildComposerFileContextPrompt(text, entries);
 }
 
 /** Delay before running post-stop side effects, giving backend time to persist usage. */
@@ -648,8 +667,13 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
             }))
           : undefined;
 
+      let finalText = content.trim() || "";
+      if (isDesktop() && selectedWorkspace?.path) {
+        finalText = await resolveFileContext(finalText, selectedWorkspace.path);
+      }
+
       sendMessage({
-        text: content.trim() || "",
+        text: finalText,
         ...(fileParts && { files: fileParts }),
       });
     },

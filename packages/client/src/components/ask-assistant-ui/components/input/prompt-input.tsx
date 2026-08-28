@@ -55,6 +55,7 @@ import { FileMentionMenu } from "../file-mention-menu";
 import { useComposerFileMentions } from "../../hooks/use-composer-file-mentions";
 import type { ComposerFileReference } from "../../libs/composer-file-references";
 import { useDesktop } from "@/components/desktop/desktop-provider";
+import { useAssistantStore } from "@buildingai/stores";
 
 export type PromptInputHiddenTool =
   | "more"
@@ -241,8 +242,16 @@ const PromptInputInner = memo(
 
     // 文件 @ 提及（对齐 Kun FloatingComposerFileMentionMenu）
     const { desktop, selectedWorkspace } = useDesktop();
+    const setComposerFileReferences = useAssistantStore((s) => s.setComposerFileReferences);
     const [references, setReferences] = useState<ComposerFileReference[]>([]);
     const focusComposer = useCallback(() => textareaRef?.current?.focus(), [textareaRef]);
+    const syncReferences = useCallback(
+      (next: ComposerFileReference[]) => {
+        setReferences(next);
+        setComposerFileReferences(next.map((r) => r.relativePath));
+      },
+      [setComposerFileReferences],
+    );
     const mention = useComposerFileMentions({
       enabled: desktop,
       input: controller.textInput.value,
@@ -253,11 +262,10 @@ const PromptInputInner = memo(
       textareaRef,
       focusComposer,
       onAdd: (ref) =>
-        setReferences((prev) =>
-          prev.some((r) => r.relativePath === ref.relativePath) ? prev : [...prev, ref],
+        syncReferences(
+          references.some((r) => r.relativePath === ref.relativePath) ? references : [...references, ref],
         ),
-      onRemove: (path) =>
-        setReferences((prev) => prev.filter((r) => r.relativePath !== path)),
+      onRemove: (path) => syncReferences(references.filter((r) => r.relativePath !== path)),
     });
 
     /**

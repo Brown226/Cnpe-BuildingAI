@@ -9,11 +9,14 @@ export interface AssistantState {
     selectedModelId: string;
     /** 选中的智能体（新会话应用的 persona，对齐 Kun composerAgentId）；空=默认 */
     composerAgentId: string;
+    /** 输入条已引用的工作区文件（relativePath 列表，发送时内容注入 prompt） */
+    composerFileReferences: string[];
 }
 
 export interface AssistantActions {
     setSelectedModelId: (id: string) => void;
     setComposerAgentId: (id: string) => void;
+    setComposerFileReferences: (paths: string[]) => void;
 }
 
 export type AssistantSlice = AssistantState & AssistantActions;
@@ -25,6 +28,8 @@ export const createAssistantSlice: StateCreator<AssistantSlice, [], [], Assistan
     setSelectedModelId: (id) => set({ selectedModelId: id }),
     composerAgentId: "",
     setComposerAgentId: (id) => set({ composerAgentId: id }),
+    composerFileReferences: [],
+    setComposerFileReferences: (paths) => set({ composerFileReferences: paths }),
 });
 
 export const useAssistantStore = createStore<AssistantSlice>(createAssistantSlice, {
@@ -39,6 +44,7 @@ export const useAssistantStore = createStore<AssistantSlice>(createAssistantSlic
             return {
                 selectedModelId: p?.selectedModelId ?? current.selectedModelId,
                 composerAgentId: p?.composerAgentId ?? current.composerAgentId,
+                composerFileReferences: current.composerFileReferences,
             };
         },
         migrate: (storage) => {
