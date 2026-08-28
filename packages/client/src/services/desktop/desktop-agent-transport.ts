@@ -11,6 +11,7 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import { onAgentEvent, rpc } from "./desktop-api";
 import { appendThreadMessages, type LocalThreadMessage } from "./thread-store";
 import { useAssistantStore } from "@buildingai/stores";
+import { useTodoStore, type TodoTask } from "@/components/desktop/todo-store";
 
 /** sidecar 事件形态（对应 agent-core EngineEvent） */
 interface EngineEventDto {
@@ -236,6 +237,21 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                             toolCallId: ev.callId ?? `tool-${toolSeq}`,
                             output,
                         });
+                        // ② Todo Tab：todo 扩展每次调用的结果携带全量任务快照
+                        if (ev.name === "todo" && typeof ev.resultPreview === "string") {
+                            try {
+                                const parsed = JSON.parse(ev.resultPreview) as {
+                                    details?: { tasks?: TodoTask[] };
+                                };
+                                if (Array.isArray(parsed?.details?.tasks)) {
+                                    useTodoStore
+                                        .getState()
+                                        .applyTodoSnapshot(chatId, parsed.details.tasks);
+                                }
+                            } catch {
+                                /* 非 todo 快照或截断，忽略 */
+                            }
+                        }
                         break;
                     }
                     case "usage": {

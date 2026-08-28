@@ -14,6 +14,7 @@ import { desktopApi, isDesktop } from "@/services/desktop/desktop-api";
 import { getDesktopAgentTransport } from "@/services/desktop/desktop-agent-transport";
 import { getLocalThread, toUIMessages } from "@/services/desktop/thread-store";
 import { useDesktop } from "@/components/desktop/desktop-provider";
+import { useTodoStore } from "@/components/desktop/todo-store";
 import { buildComposerFileContextPrompt } from "../libs/composer-file-references";
 import { getApiBaseUrl } from "@/utils/api";
 
@@ -651,6 +652,8 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
           mode: activeMode,
           agentRole: await resolveAgentRole(),
         });
+        // ② Todo Tab：跟随激活会话（transport 同款归属键）
+        useTodoStore.getState().setActiveChat(localThreadId);
       }
 
       if (options?.baseMessages) {

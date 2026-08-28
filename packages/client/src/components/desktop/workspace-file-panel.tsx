@@ -17,6 +17,7 @@ import {
   FolderOpen,
   FolderPlus,
   Globe,
+  ListTodo,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -37,6 +38,8 @@ import { GitPanel } from "./git-panel";
 import { BrowserPanel } from "./browser-panel";
 import { SlidesPreview } from "./slides-preview";
 import { MarkdownEditor } from "./markdown-editor";
+import { TodoPanel } from "./todo-panel";
+import { selectActiveTodos, useTodoStore } from "./todo-store";
 
 type Entry = { name: string; type: "file" | "dir"; size?: number; mtimeMs?: number };
 interface RecentFile {
@@ -73,7 +76,10 @@ export function WorkspaceFilePanel({
   embedded?: boolean;
 }) {
   const { desktop, selectedWorkspace, refreshWorkspacesSignal } = useDesktop();
-  const [tab, setTab] = useState<"files" | "preview" | "git" | "browser">("files");
+  const [tab, setTab] = useState<"files" | "todo" | "preview" | "git" | "browser">("files");
+  // ② Todo Tab：待办计数徽标（todo 扩展快照经 transport 归档）
+  const activeTodos = useTodoStore(selectActiveTodos);
+  const todoCount = activeTodos.length;
   const [tree, setTree] = useState<Record<string, Entry[]>>({});
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -529,6 +535,23 @@ export function WorkspaceFilePanel({
         )}
         <button
           type="button"
+          onClick={() => setTab("todo")}
+          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
+            tab === "todo"
+              ? "border-primary font-medium"
+              : "text-muted-foreground border-transparent hover:text-foreground"
+          }`}
+        >
+          <ListTodo className="size-4" />
+          待办
+          {todoCount > 0 ? (
+            <span className="bg-primary/10 text-primary rounded-full px-1.5 text-[10px] leading-4">
+              {todoCount}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
           onClick={() => setTab("git")}
           className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
             tab === "git"
@@ -564,6 +587,8 @@ export function WorkspaceFilePanel({
 
       {tab === "browser" ? (
         <BrowserPanel embedded />
+      ) : tab === "todo" ? (
+        <TodoPanel />
       ) : tab === "git" ? (
         <GitPanel />
       ) : tab === "files" ? (
