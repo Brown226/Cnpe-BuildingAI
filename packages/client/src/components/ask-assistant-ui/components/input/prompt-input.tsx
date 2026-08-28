@@ -51,6 +51,7 @@ import type { Model } from "../../types";
 import { McpSelector } from "../mcp-selector";
 import { VoiceInput } from "./voice-input";
 import { AgentPicker } from "../agent-picker";
+import { DatasetPicker } from "../dataset-picker";
 import { UsageBadge } from "../usage-badge";
 import { FileMentionMenu } from "../file-mention-menu";
 import { SlashCommandMenu } from "../slash-command-menu";
@@ -473,6 +474,7 @@ const PromptInputInner = memo(
         <AIPromptInputFooter className="h-13 py-0">
           <AIPromptInputTools>
             {!hiddenSet.has("more") && <AgentPicker />}
+            {desktop && <DatasetPicker />}
             {desktop && <UsageBadge />}
             {(() => {
               const showFile =

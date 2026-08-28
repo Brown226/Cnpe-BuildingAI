@@ -6,8 +6,13 @@ import type { PlatformTool } from "../tools/types.js";
  * 平台侧持有 JSON Schema 参数描述与受策略管控的 execute；
  * pi 只见到 name/description/parameters 与结果文本。
  * 错误以文本形式返回给模型（可自愈重试），异常只用于真正致命故障。
+ * toPiTools 按会话调用（ensureSession），context 把 sessionId 绑定进每个工具，
+ * 会话级数据（如知识库挂载）由此传递给工具执行体。
  */
-export function toPiTools(tools: PlatformTool[]): ToolDefinition[] {
+export function toPiTools(
+    tools: PlatformTool[],
+    context?: { sessionId: string },
+): ToolDefinition[] {
     return tools.map((tool) =>
         defineTool({
             name: tool.name,
@@ -20,7 +25,7 @@ export function toPiTools(tools: PlatformTool[]): ToolDefinition[] {
             } as never,
             execute: async (_callId: string, params: Record<string, unknown>) => {
                 try {
-                    const result = await tool.execute(params ?? {});
+                    const result = await tool.execute(params ?? {}, context);
                     return {
                         content: [{ type: "text" as const, text: result.summary }],
                         details: {},

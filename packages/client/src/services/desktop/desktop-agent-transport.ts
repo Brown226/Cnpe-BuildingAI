@@ -305,7 +305,15 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
 
             const mode = this.threadContext?.mode ?? modeByChat.get(chatId) ?? "code";
             const agentRole = this.threadContext?.agentRole;
-            await rpc("session.send", { sessionId: sid, text, mode, agentRole });
+            // ⑤ 知识库挂载：输入条选择器当前所选数据集随每轮下发（会话级挂载）
+            const datasetIds = useAssistantStore.getState().composerDatasetIds;
+            await rpc("session.send", {
+                sessionId: sid,
+                text,
+                mode,
+                agentRole,
+                ...(datasetIds.length > 0 ? { datasetIds } : {}),
+            });
             // aborted 场景下 done 可能仍随后到达，但流已通过 abort 块关闭
             if (aborted) {
                 /* 等待引擎侧 done/abort 收尾；超时兜底 */

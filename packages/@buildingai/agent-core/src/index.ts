@@ -27,6 +27,7 @@ import { OfficeTools } from "./tools/office-tools.js";
 import type { PlatformTool } from "./tools/types.js";
 import { runtimeConfig } from "./state/runtime-config.js";
 import type { ConfigPack } from "./state/runtime-config.js";
+import { getDatasetSelection, setDatasetSelection } from "./state/dataset-selection.js";
 import { PiEngine } from "./engine/pi-engine.js";
 import type { EngineEvent } from "./engine/types.js";
 import { SessionJsonlStore } from "./session/jsonl-store.js";
@@ -248,6 +249,91 @@ const platformTools: PlatformTool[] = [
         execute: async (args) => {
             const r = await browser.request("eval", String(args.js ?? ""));
             return { ok: true, summary: r.slice(0, 6000), data: { chars: r.length } };
+        },
+    },
+    {
+        // ⑤ 知识库检索：桌面端输入条「知识库」选择器挂载的数据集，
+        //    经服务端 /ai-datasets/:id/retrieve 做向量/全文检索（对齐 Kun 会话级知识库挂载）
+        name: "dataset_search",
+        description:
+            "在当前会话已挂载的企业知识库中检索相关内容片段。回答事实性、资料类问题前应先检索；" +
+            "若当前会话未挂载知识库，工具会提示用户先在输入条下方「知识库」入口选择。",
+        parameters: {
+            type: "object",
+            properties: {
+                query: { type: "string", description: "检索关键词或自然语言问题" },
+                topK: { type: "number", description: "每个知识库返回的片段数上限，缺省 6" },
+            },
+            required: ["query"],
+        },
+        execute: async (args, context) => {
+            const datasetIds = getDatasetSelection(context?.sessionId ?? "");
+            if (datasetIds.length === 0) {
+                return {
+                    ok: false,
+                    summary: "当前会话未挂载知识库：请让用户通过输入条下方的「知识库」入口选择后重试。",
+                    data: { mounted: 0 },
+                };
+            }
+            const query = String(args.query ?? "").trim();
+            if (!query) return { ok: false, summary: "缺少检索词 query。", data: { mounted: datasetIds.length } };
+            const topK =
+                typeof args.topK === "number" && args.topK > 0 ? Math.min(Math.floor(args.topK), 20) : 6;
+            const cfg = runtimeConfig.require()!;
+            const base = cfg.serverUrl.replace(/\/+$/, "");
+            const results = await Promise.all(
+                datasetIds.map(async (id) => {
+                    try {
+                        const res = await fetch(
+                            `${base}/api/v1/ai-datasets/${encodeURIComponent(id)}/retrieve`,
+                            {
+                                method: "POST",
+                                headers: {
+                                    "content-type": "application/json",
+                                    authorization: `Bearer ${cfg.token}`,
+                                },
+                                body: JSON.stringify({ query, topK }),
+                            },
+                        );
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        return (await res.json()) as {
+                            chunks?: Array<{
+                                content?: string;
+                                score?: number;
+                                fileName?: string;
+                            }>;
+                            totalTime?: number;
+                        };
+                    } catch (err) {
+                        logStderr(`dataset_search 检索失败（dataset=${id}）: ${String(err)}`);
+                        return { chunks: [] as Array<{ content?: string; score?: number; fileName?: string }> };
+                    }
+                }),
+            );
+            const chunks = results.flatMap((r) => r.chunks ?? []);
+            audit.record({
+                type: "tool.call",
+                action: "dataset_search",
+                detail: { query, datasets: datasetIds.length, hits: chunks.length },
+            });
+            if (chunks.length === 0) {
+                return {
+                    ok: true,
+                    summary: `已检索 ${datasetIds.length} 个知识库，未命中相关内容。`,
+                    data: { hits: 0, datasets: datasetIds.length },
+                };
+            }
+            const lines = chunks.map(
+                (c, i) =>
+                    `[${i + 1}] ${c.fileName ?? "（未命名文档）"}（相关度 ${
+                        typeof c.score === "number" ? c.score.toFixed(3) : "?"
+                    }）\n${String(c.content ?? "").slice(0, 1200)}`,
+            );
+            return {
+                ok: true,
+                summary: lines.join("\n\n").slice(0, 12000),
+                data: { hits: chunks.length, datasets: datasetIds.length },
+            };
         },
     },
 ];
@@ -708,9 +794,19 @@ function normalizeMode(mode: string | undefined): "code" | "work" {
  */
 rpc.register("session.send", (params) => {
     requireInitialized();
-    const p = params as { sessionId?: string; text?: string; mode?: string; agentRole?: string };
+    const p = params as {
+        sessionId?: string;
+        text?: string;
+        mode?: string;
+        agentRole?: string;
+        datasetIds?: unknown;
+    };
     if (!p?.sessionId || !p.text)
         throw new RpcError(RpcErrorCodes.InvalidParams, "session.send 需要 sessionId 与 text");
+    // ⑤ 知识库挂载：随每轮发送更新会话级挂载集合（对齐 Kun thread knowledgeBases）
+    if (Array.isArray(p.datasetIds)) {
+        setDatasetSelection(p.sessionId, p.datasetIds.map((id) => String(id)));
+    }
     void pumpSessionEvents(p.sessionId, p.text, p.mode, p.agentRole).catch((err) => {
         logStderr(`session.send 泵异常: ${String(err)}`);
         rpc.notify("engine/event", {

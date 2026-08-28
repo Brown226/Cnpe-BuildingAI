@@ -400,6 +400,7 @@ export class PiEngine implements AgentEngine {
         await resourceLoader.reload();
 
         // T2.4 工具按模式隔离：仅注入该模式允许的工具（缺省 modes 视为全模式）
+        // 会话上下文（sessionId）随工具绑定，供会话级能力（知识库挂载）取数
         const modeTools = this.tools.filter(
             (t) => !t.modes || t.modes.includes(mode),
         );
@@ -407,7 +408,7 @@ export class PiEngine implements AgentEngine {
             model: this.buildModelObject(modelId),
             modelRuntime: this.runtime,
             resourceLoader,
-            customTools: toPiTools(modeTools),
+            customTools: toPiTools(modeTools, { sessionId }),
             noTools: "builtin",
             sessionManager: SessionManager.inMemory(),
             cwd,
