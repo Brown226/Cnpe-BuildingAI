@@ -25,8 +25,8 @@
         "smoke:engine": "node scripts/smoke-engine.mjs"
     },
     "dependencies": {
-        "@earendil-works/pi-ai": "0.82.1",
-        "@earendil-works/pi-coding-agent": "0.82.1",
+        "@earendil-works/pi-ai": "0.83.0",
+        "@earendil-works/pi-coding-agent": "0.83.0",
         "@ff-labs/pi-fff": "0.10.5",
         "@juicesharp/rpiv-ask-user-question": "2.7.1",
         "@juicesharp/rpiv-todo": "2.7.1",
