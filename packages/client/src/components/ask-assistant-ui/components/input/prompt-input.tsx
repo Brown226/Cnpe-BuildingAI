@@ -51,6 +51,10 @@ import type { Model } from "../../types";
 import { McpSelector } from "../mcp-selector";
 import { VoiceInput } from "./voice-input";
 import { AgentPicker } from "../agent-picker";
+import { FileMentionMenu } from "../file-mention-menu";
+import { useComposerFileMentions } from "../../hooks/use-composer-file-mentions";
+import type { ComposerFileReference } from "../../libs/composer-file-references";
+import { useDesktop } from "@/components/desktop/desktop-provider";
 
 export type PromptInputHiddenTool =
   | "more"
@@ -235,6 +239,27 @@ const PromptInputInner = memo(
 
     const controller = usePromptInputController();
 
+    // 文件 @ 提及（对齐 Kun FloatingComposerFileMentionMenu）
+    const { desktop, selectedWorkspace } = useDesktop();
+    const [references, setReferences] = useState<ComposerFileReference[]>([]);
+    const focusComposer = useCallback(() => textareaRef?.current?.focus(), [textareaRef]);
+    const mention = useComposerFileMentions({
+      enabled: desktop,
+      input: controller.textInput.value,
+      setInput: (value) => controller.textInput.setInput(value),
+      workspaceRoot: desktop ? (selectedWorkspace?.path ?? null) : null,
+      menuBlocked: false,
+      references,
+      textareaRef,
+      focusComposer,
+      onAdd: (ref) =>
+        setReferences((prev) =>
+          prev.some((r) => r.relativePath === ref.relativePath) ? prev : [...prev, ref],
+        ),
+      onRemove: (path) =>
+        setReferences((prev) => prev.filter((r) => r.relativePath !== path)),
+    });
+
     /**
      * Handle paste event with file type validation
      */
@@ -359,6 +384,7 @@ const PromptInputInner = memo(
 
     const handleTextareaKeyDown = useCallback(
       (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (mention.handleKeyDown(event, event.nativeEvent.isComposing)) return;
         if (
           isConversationInProgress &&
           event.key === "Enter" &&
@@ -368,11 +394,25 @@ const PromptInputInner = memo(
           event.preventDefault();
         }
       },
-      [isConversationInProgress],
+      [isConversationInProgress, mention],
     );
 
     return (
-      <AIPromptInput globalDrop={globalDrop} multiple={multiple} onSubmit={handleSubmit}>
+      <AIPromptInput
+        globalDrop={globalDrop}
+        multiple={multiple}
+        onSubmit={handleSubmit}
+        className="relative"
+      >
+        {mention.showMenu && (
+          <FileMentionMenu
+            suggestions={mention.suggestions}
+            loading={mention.loading}
+            selectedIndex={mention.selectedIndex}
+            highlighted={mention.highlighted}
+            onSelect={mention.applySuggestion}
+          />
+        )}
         <PromptInputAttachmentsList />
         <AIPromptInputBody>
           <AIPromptInputTextarea
@@ -380,6 +420,7 @@ const PromptInputInner = memo(
             onFocus={onTextareaFocus}
             onKeyDown={handleTextareaKeyDown}
             onPaste={handlePaste}
+            onSelect={() => mention.syncCursor()}
           />
         </AIPromptInputBody>
         <AIPromptInputFooter className="h-13 py-0">
