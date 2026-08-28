@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@buildingai/ui/components/ui/button";
-import { Spinner } from "@buildingai/ui/components/ui/spinner";
 import { cn } from "@buildingai/ui/lib/utils";
 import { Check, Mic, X } from "lucide-react";
 import type { RefObject } from "react";

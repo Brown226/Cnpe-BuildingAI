@@ -118,12 +118,12 @@ function ImageUpload({
     maxFiles: 1,
     params,
     onUploadStart: () => onUploadStart?.(),
-    onUploadSuccess: (file, result) => {
+    onUploadSuccess: (_file, result) => {
       const url = result.url;
       setInternalValue(url);
       onChange?.(url, result);
     },
-    onUploadError: (file, error) => {
+    onUploadError: (_file, error) => {
       onUploadError?.(error);
     },
   });

@@ -8,17 +8,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consoleHttpClient } from "../base";
 
 // Enums
-export enum MenuType {
-    GROUP = 0,
-    DIRECTORY = 1,
-    MENU = 2,
-    BUTTON = 3,
-}
+export const MenuType = {
+    GROUP: 0,
+    DIRECTORY: 1,
+    MENU: 2,
+    BUTTON: 3,
+} as const;
 
-export enum MenuSourceType {
-    SYSTEM = 1,
-    PLUGIN = 2,
-}
+export type MenuType = (typeof MenuType)[keyof typeof MenuType];
+
+export const MenuSourceType = {
+    SYSTEM: 1,
+    PLUGIN: 2,
+} as const;
+
+export type MenuSourceType = (typeof MenuSourceType)[keyof typeof MenuSourceType];
 
 // Types
 export type Menu = {

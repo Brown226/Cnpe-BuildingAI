@@ -14,7 +14,7 @@ import {
   ToolOutput,
 } from "@buildingai/ui/components/ai-elements/tool";
 import { cn } from "@buildingai/ui/lib/utils";
-import { ChevronDown, ChevronRight, SquareTerminal } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { memo, useState } from "react";
 
 interface SubagentArgs {
@@ -69,9 +69,7 @@ export const SubagentCard = memo(function SubagentCard({
         state={toolPart.state as never}
         title={`子代理${args.name ? ` · ${args.name}` : ""}`}
         type="tool-invocation"
-      >
-        <SquareTerminal className="text-muted-foreground size-3.5" />
-      </ToolHeader>
+      />
       <ToolContent>
         <div className="not-prose rounded-md border p-2">
           <button
@@ -109,7 +107,10 @@ export const SubagentCard = memo(function SubagentCard({
             </div>
           )}
         </div>
-        {resultText ? <ToolOutput output={{ summary: resultText }} /> : null}
+        <ToolOutput
+          output={resultText ? { summary: resultText } : undefined}
+          errorText={toolPart.errorText}
+        />
       </ToolContent>
     </Tool>
   );

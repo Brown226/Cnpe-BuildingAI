@@ -3,7 +3,6 @@
 import { cn } from "@buildingai/ui/lib/utils";
 import type { PlateElementProps } from "platejs/react";
 import { PlateElement, useFocused, useReadOnly, useSelected } from "platejs/react";
-import * as React from "react";
 
 export function HrElement(props: PlateElementProps) {
   const readOnly = useReadOnly();

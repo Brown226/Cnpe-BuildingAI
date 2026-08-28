@@ -2,7 +2,6 @@ import { Badge } from "@buildingai/ui/components/ui/badge";
 import { Button } from "@buildingai/ui/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@buildingai/ui/components/ui/card";
 import { ScrollArea } from "@buildingai/ui/components/ui/scroll-area";
-import { useState } from "react";
 
 import { useDesktop } from "./desktop-provider";
 
@@ -19,7 +18,6 @@ const KIND_LABEL: Record<string, string> = {
  */
 export function ApprovalCardsHost() {
     const { desktop, pendingApprovals, respond } = useDesktop();
-    const [dismissedKinds, setDismissedKinds] = useState<Record<string, boolean>>({});
 
     if (!desktop || pendingApprovals.length === 0) return null;
 
@@ -52,7 +50,6 @@ export function ApprovalCardsHost() {
                                 {String(req.detail.afterPreview)}
                             </ScrollArea>
                         )}
-                        {req.kind === "command" && dismissedKinds[req.requestId] === undefined && null}
                     </CardContent>
                     <CardFooter className="flex gap-2 pt-0">
                         <Button size="sm" onClick={() => respond(req.requestId, true)}>

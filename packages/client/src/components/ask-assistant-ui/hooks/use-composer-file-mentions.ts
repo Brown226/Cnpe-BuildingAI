@@ -46,7 +46,7 @@ type Options = {
   workspaceRoot: string | null;
   menuBlocked: boolean;
   references: ComposerFileReference[];
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
   focusComposer: () => void;
   onAdd?: (reference: ComposerFileReference) => void;
   onRemove?: (relativePath: string) => void;
@@ -141,7 +141,7 @@ export function useComposerFileMentions({
   }, [input, onRemove, references]);
 
   const syncCursor = useCallback(
-    (element = textareaRef.current) => {
+    (element = textareaRef?.current) => {
       if (element) setCursor(element.selectionStart ?? input.length);
     },
     [input.length, textareaRef],
@@ -155,7 +155,7 @@ export function useComposerFileMentions({
       onAdd?.(suggestion);
       setDismissedKey(null);
       window.requestAnimationFrame(() => {
-        const textarea = textareaRef.current;
+        const textarea = textareaRef?.current;
         if (!textarea) return;
         textarea.focus();
         textarea.setSelectionRange(next.cursor, next.cursor);

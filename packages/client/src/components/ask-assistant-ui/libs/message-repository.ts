@@ -53,7 +53,10 @@ const findHead = (message: RepositoryMessage | RepositoryParent): RepositoryMess
  */
 class CachedValue<T> {
   private _value: T | null = null;
-  constructor(private func: () => T) {}
+  private func: () => T;
+  constructor(func: () => T) {
+    this.func = func;
+  }
   get value(): T {
     if (this._value === null) this._value = this.func();
     return this._value;

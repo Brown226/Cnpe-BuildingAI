@@ -7,11 +7,13 @@ class TextStreamAnimator {
   private lastUpdateTime: number = Date.now();
 
   public targetText: string = "";
+  public currentText: string;
+  private setText: (newText: string) => void;
 
-  constructor(
-    public currentText: string,
-    private setText: (newText: string) => void,
-  ) {}
+  constructor(currentText: string, setText: (newText: string) => void) {
+    this.currentText = currentText;
+    this.setText = setText;
+  }
 
   start() {
     if (this.animationFrameId !== null) return;

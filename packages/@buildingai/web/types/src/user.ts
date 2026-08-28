@@ -1,4 +1,4 @@
-import { BooleanNumberType, UserCreateSourceType } from "@buildingai/constants/shared";
+import type { BooleanNumberType, UserCreateSourceType } from "@buildingai/constants/shared";
 
 export interface UserInfo {
     id: string;

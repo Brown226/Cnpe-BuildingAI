@@ -112,12 +112,10 @@ function PreviewCard({ selected, mode }: { selected: boolean; mode: EmbedMode })
 export function EmbedPublishDialog({
   open,
   onOpenChange,
-  isPending,
   publicLink,
   iframeCode,
   floatingScriptCode,
   mobileScriptCode,
-  onPublish,
   onCopy,
 }: EmbedPublishDialogProps) {
   const [selectedMode, setSelectedMode] = useState<EmbedMode>("inline");

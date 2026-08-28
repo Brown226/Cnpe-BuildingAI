@@ -29,7 +29,14 @@ export function UsageBadge() {
       usage={{
         inputTokens: sessionUsage.inputTokens,
         outputTokens: sessionUsage.outputTokens,
+        totalTokens: sessionUsage.inputTokens + sessionUsage.outputTokens,
         cachedInputTokens: sessionUsage.cacheReadTokens,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: sessionUsage.cacheReadTokens,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
       }}
       modelId=""
     >

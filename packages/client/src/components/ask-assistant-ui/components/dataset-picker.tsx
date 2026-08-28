@@ -21,7 +21,7 @@ import {
 } from "@buildingai/ui/components/ui/popover";
 import { ScrollArea } from "@buildingai/ui/components/ui/scroll-area";
 import { Spinner } from "@buildingai/ui/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@buildingai/ui/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@buildingai/ui/components/ui/tabs";
 import { cn } from "@buildingai/ui/lib/utils";
 import { BookOpen, X } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";

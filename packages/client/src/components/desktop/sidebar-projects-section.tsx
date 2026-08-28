@@ -90,7 +90,7 @@ export function DesktopProjectsSection() {
   /** T4.5 策略：不允许多工作区时隐藏"添加工作区"入口 */
   const allowAddWorkspace = policyKeys?.allowMultipleWorkspaces !== false;
   const navigate = useNavigate();
-  const [version, setVersion] = useState(0);
+  const [, setVersion] = useState(0);
   const [menu, setMenu] = useState<MenuState>(null);
   const [expandedIds, setExpandedIds] = useState<string[]>(() => loadExpanded());
   const [dragThread, setDragThread] = useState<string | null>(null);

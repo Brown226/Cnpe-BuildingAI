@@ -2,7 +2,7 @@ import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } f
 
 import { createAbortError, createRequestId } from "../utils/helpers";
 import { mergeRequestConfig, type RequestConfig } from "../utils/request";
-import { type HeadersInput, type HttpClientOptions, HttpError, type RetryOptions } from "./types";
+import { type HeadersInput, type HttpClientOptions, HttpError } from "./types";
 
 function trimSlashStart(v: string): string {
     return v.replace(/^\/+/, "");
@@ -28,14 +28,6 @@ function joinPrefix(url: string, prefix?: string): string {
 
     return `${p}/${u}`;
 }
-
-const defaultRetry: RetryOptions = {
-    retries: 0,
-    delay: 300,
-    factor: 2,
-    retryOnStatuses: [408, 429, 500, 502, 503, 504],
-    retryOnMethods: ["GET", "PUT", "DELETE", "HEAD", "OPTIONS"],
-};
 
 function normalizeHeaders(headers?: HeadersInput): Record<string, string> | undefined {
     if (!headers) return undefined;
@@ -106,8 +98,6 @@ function isAccessError(error: HttpError): boolean {
 export class HttpClient {
     private readonly axios: AxiosInstance;
     private readonly options: HttpClientOptions;
-    private readonly retry: RetryOptions;
-
     private unwrapOrThrow<TResponse>(raw: unknown): TResponse {
         if (this.options.parseResponse) {
             const result = this.options.parseResponse<TResponse>(raw);
@@ -120,13 +110,6 @@ export class HttpClient {
 
     public constructor(options: HttpClientOptions = {}) {
         this.options = options;
-        this.retry = {
-            ...defaultRetry,
-            ...(options.retry ?? {}),
-            retryOnStatuses: options.retry?.retryOnStatuses ?? defaultRetry.retryOnStatuses,
-            retryOnMethods: options.retry?.retryOnMethods ?? defaultRetry.retryOnMethods,
-        };
-
         this.axios = axios.create({
             baseURL: options.baseURL,
             timeout: options.timeoutMs,

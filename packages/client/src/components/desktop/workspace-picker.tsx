@@ -7,7 +7,7 @@ import { ChevronDown, FolderOpen, FolderPlus, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useDesktop } from "./desktop-provider";
-import { basename, parentDir } from "@/services/desktop/workspace-store";
+import { parentDir } from "@/services/desktop/workspace-store";
 
 export function WorkspacePicker() {
     const { desktop, workspaces, selectedWorkspace, addWorkspaceByPicker, selectWorkspace } =

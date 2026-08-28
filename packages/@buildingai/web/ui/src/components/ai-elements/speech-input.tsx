@@ -63,7 +63,7 @@ export type SpeechInputProps = ComponentProps<typeof Button> & {
    * The callback receives an audio Blob that should be sent to a transcription service.
    * Return the transcribed text, which will be passed to onTranscriptionChange.
    */
-  onAudioRecorded?: (audioBlob: Blob) => Promise<string>;
+  onAudioRecorded?: (audioBlob: Blob) => Promise<string | void>;
   lang?: string;
 };
 

@@ -2,7 +2,6 @@ import { cn } from "@buildingai/ui/lib/utils";
 import type { VariantProps } from "class-variance-authority";
 import { cva } from "class-variance-authority";
 import { PlateStatic, type PlateStaticProps } from "platejs/static";
-import * as React from "react";
 
 export const editorVariants = cva(
   cn(

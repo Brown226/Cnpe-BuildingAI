@@ -6,7 +6,6 @@ import { FileUp } from "lucide-react";
 import type { TFileElement } from "platejs";
 import type { PlateElementProps } from "platejs/react";
 import { PlateElement, useReadOnly, withHOC } from "platejs/react";
-import * as React from "react";
 
 import { Caption, CaptionTextarea } from "./caption";
 

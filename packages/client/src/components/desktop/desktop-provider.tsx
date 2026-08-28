@@ -143,9 +143,8 @@ function isNewerVersion(a: string, b: string): boolean {
 export function DesktopProvider({ children }: { children: ReactNode }) {
     const desktop = isDesktop();
     const token = useAuthStore((state) => state.auth.token);
-    const user = useAuthStore((state) => state.user);
-    // 修复：此前直接引用未定义的 userId（deps 数组内）导致首渲染 ReferenceError 白屏
-    const userId = (user as { id?: string } | null)?.id;
+    // 审计上报归属：auth.userInfo.id（此前误引用不存在的 state.user，userId 恒为 undefined）
+    const userId = useAuthStore((state) => state.auth.userInfo?.id);
     const [ready, setReady] = useState(false);
     const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequestPayload[]>([]);
     const [refreshWorkspacesSignal, setRefreshWorkspacesSignal] = useState(0);

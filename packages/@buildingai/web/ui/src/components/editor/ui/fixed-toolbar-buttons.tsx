@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { KEYS } from "platejs";
 import { useEditorReadOnly } from "platejs/react";
-import * as React from "react";
 
 import { AlignToolbarButton } from "./align-toolbar-button";
 import { EmojiToolbarButton } from "./emoji-toolbar-button";

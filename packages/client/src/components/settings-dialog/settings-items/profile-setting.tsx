@@ -10,7 +10,6 @@ import {
   useUpdateUserFieldMutation,
 } from "@buildingai/services/web";
 import { useAuthStore } from "@buildingai/stores";
-import { RootOnly } from "@buildingai/ui/components/auth/root-only";
 import { CopyButton } from "@buildingai/ui/components/copy-button";
 import SvgIcons from "@buildingai/ui/components/svg-icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@buildingai/ui/components/ui/avatar";

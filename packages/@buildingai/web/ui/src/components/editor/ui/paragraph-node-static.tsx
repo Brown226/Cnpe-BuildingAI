@@ -1,7 +1,6 @@
 import { cn } from "@buildingai/ui/lib/utils";
 import type { SlateElementProps } from "platejs/static";
 import { SlateElement } from "platejs/static";
-import * as React from "react";
 
 export function ParagraphElementStatic(props: SlateElementProps) {
   return (

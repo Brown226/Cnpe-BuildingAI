@@ -21,6 +21,8 @@ interface EngineEventDto {
     callId?: string;
     name?: string;
     argsPreview?: string;
+    /** tool_call_end：工具结果 JSON（todo 快照/子代理结果等） */
+    resultPreview?: string;
     ok?: boolean;
     durationMs?: number;
     message?: string;
@@ -160,7 +162,6 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
 
             let openTextId: string | null = null;
             let openReasoningId: string | null = null;
-            let textOpenedEver = false;
             let toolSeq = 0;
             let errorText: string | undefined;
             let stopAborted = false;
@@ -202,7 +203,6 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                     case "text_delta": {
                         if (!openTextId) {
                             openTextId = crypto.randomUUID();
-                            textOpenedEver = true;
                             controller.enqueue({ type: "text-start", id: openTextId });
                         }
                         controller.enqueue({

@@ -2,7 +2,6 @@
  * 桌面端（Tauri）与 agent-core sidecar 的前端接入层。
  * 浏览器环境（网页版）下 isDesktop() 为 false，所有桌面能力静默不可用。
  */
-import type { UserPlayground } from "@buildingai/db";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -150,6 +149,11 @@ export const desktopApi = {
         return rpc("fs.read", { path });
     },
 
+    /** 写文本（策略管控：严格模式弹审批，T2.3 编辑回写用） */
+    fsWrite(path: string, content: string): Promise<{ bytesWritten: number }> {
+        return rpc("fs.write", { path, content });
+    },
+
     /** T3.5 二进制读取（base64，20MB 上限；PPT 在线预览用） */
     fsReadBinary(path: string): Promise<{ base64: string; size: number }> {
         return rpc("fs.readBinary", { path });
@@ -187,6 +191,11 @@ export const desktopApi = {
 
     fsUnwatch(root: string): Promise<{ watching: boolean }> {
         return rpc("fs.unwatch", { root });
+    },
+
+    /** 在系统文件管理器中定位文件/目录（右面板菜单用） */
+    revealPath(path: string): Promise<void> {
+        return invoke("reveal_path", { path });
     },
 
     /** 解析文档为纯文本（docx/xlsx/csv/txt/md） */

@@ -23,9 +23,8 @@ type Task = {
   enabled: boolean;
   lastRunAt?: number;
 };
-type Record = { id: string; taskId: string; at: number; status: string; summary?: string; error?: string };
+type ScheduleRecord = { id: string; taskId: string; at: number; status: string; summary?: string; error?: string };
 
-const KIND_LABEL: Record<string, string> = { once: "单次", daily: "每日", weekly: "每周" };
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
 function fmtTime(ts?: number): string {
@@ -33,7 +32,7 @@ function fmtTime(ts?: number): string {
   return new Date(ts).toLocaleString("zh-CN", { hour12: false });
 }
 
-function scheduleLabel(t: Task, expand = false): string {
+function scheduleLabel(t: Task): string {
   const s = t.schedule;
   const tz = s.timezone;
   if (s.kind === "once") return `单次 ${fmtTime(s.hour ? undefined : parseInt(s as never) as never)}`;
@@ -46,7 +45,7 @@ function scheduleLabel(t: Task, expand = false): string {
 
 export function AutomationsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [records, setRecords] = useState<Record[]>([]);
+  const [records, setRecords] = useState<ScheduleRecord[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");

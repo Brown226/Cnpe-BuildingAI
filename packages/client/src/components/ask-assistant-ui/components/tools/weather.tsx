@@ -44,6 +44,8 @@ type WeatherAtLocation = {
   timezone_abbreviation: string;
   elevation: number;
   cityName?: string;
+  /** 上游 API 失败时的错误信息（chat 模型透传） */
+  error?: string | { message?: string };
   current_units: {
     time: string;
     interval: string;

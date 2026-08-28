@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { QueryOptionsUtil } from "@buildingai/web-types";
 
 import { consoleHttpClient } from "../base";
 
@@ -47,7 +48,6 @@ export type UpdateSmsSceneSettingDto = {
     content: string;
 };
 
-type QueryOptionsUtil<T> = any;
 
 /**
  * 获取阿里云短信配置

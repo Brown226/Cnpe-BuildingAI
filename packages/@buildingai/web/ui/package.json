@@ -25,11 +25,12 @@
             "types": "./src/layouts/*.tsx"
         },
         "./styles/*": "./src/styles/*",
-        "./hooks/*": {
-            "import": "./src/hooks/*.tsx",
-            "require": "./src/hooks/*.tsx",
-            "types": "./src/hooks/*.tsx"
-        },
+        "./hooks/*": "./src/hooks/*.tsx",
+        "./hooks/use-debounce": "./src/hooks/use-debounce.ts",
+        "./hooks/use-is-touch-device": "./src/hooks/use-is-touch-device.ts",
+        "./hooks/use-mounted": "./src/hooks/use-mounted.ts",
+        "./hooks/use-upload-file": "./src/hooks/use-upload-file.ts",
+        "./components/editor/transforms": "./src/components/editor/transforms.ts",
         "./lib/*": {
             "import": "./src/lib/*.ts",
             "require": "./src/lib/*.ts",

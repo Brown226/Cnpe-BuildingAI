@@ -2,7 +2,8 @@ import { Check, Palette } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "../lib/utils";
-import { THEME_COLORS, ThemeColor, useTheme } from "./theme-provider";
+import { THEME_COLORS, useTheme } from "./theme-provider";
+import type { ThemeColor } from "./theme-provider";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,

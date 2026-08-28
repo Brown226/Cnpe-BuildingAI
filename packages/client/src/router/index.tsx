@@ -2,7 +2,9 @@ import GlobalError from "@buildingai/ui/components/exception/global-error";
 import NotFoundPage from "@buildingai/ui/components/exception/not-found-page";
 import MainLayout from "@buildingai/ui/layouts/main/index";
 import DefaultLayout from "@buildingai/ui/layouts/styles/default/index";
-import { createBrowserRouter } from "react-router-dom";
+import { useAuthStore } from "@buildingai/stores";
+import { Navigate, useLocation, createBrowserRouter } from "react-router-dom";
+import type { ReactNode } from "react";
 
 import AgentsIndexPage from "@/pages/agents";
 import AgentChatPage from "@/pages/agents/detail/chat";
@@ -29,6 +31,17 @@ import { DesktopProjectsSection } from "@/components/desktop/sidebar-projects-se
 import { ModeTabs } from "@/components/desktop/mode-tabs";
 import { DesktopRightPanel } from "@/components/desktop/desktop-right-panel";
 import { SplitPill } from "@/components/desktop/split-pill";
+
+/** 登录守卫：未持 token 的访问重定向到登录页（带 redirect 回跳参数） */
+function AuthGuard({ children }: { children: ReactNode }) {
+  const token = useAuthStore((s) => s.auth.token);
+  const location = useLocation();
+  if (!token) {
+    const redirect = `${location.pathname}${location.search}`;
+    return <Navigate to={`/login?redirect=${encodeURIComponent(redirect)}`} replace />;
+  }
+  return <>{children}</>;
+}
 
 export const router = createBrowserRouter([
   {

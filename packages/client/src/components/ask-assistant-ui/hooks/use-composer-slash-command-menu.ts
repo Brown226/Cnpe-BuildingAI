@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 
-import { buildSlashCommands, getSlashQueryAtCursor, type SlashCommand } from "../libs/slash-commands";
+import { buildSlashCommands, getSlashQueryAtCursor } from "../libs/slash-commands";
 
 type Options = {
   enabled: boolean;
@@ -20,7 +20,7 @@ type Options = {
   activeThreadId: string | null;
   busy: boolean;
   menuBlocked: boolean;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
   onSelect: (commandId: string) => void;
   onDismiss: () => void;
 };
@@ -68,7 +68,7 @@ export function useComposerSlashCommandMenu({
   const showMenu = enabled && slashQuery != null && !menuBlocked;
 
   const syncCursor = useCallback(
-    (element = textareaRef.current) => {
+    (element = textareaRef?.current) => {
       if (element) setCursor(element.selectionStart ?? input.length);
     },
     [input.length, textareaRef],

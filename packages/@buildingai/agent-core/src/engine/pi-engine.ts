@@ -195,29 +195,21 @@ export class PiEngine implements AgentEngine {
                         else if (ame.type === "toolcall_start") {
                             const idx = String(ame.contentIndex ?? "0");
                             const info = extractToolCallInfo(ame);
-                            // 真实 callId（模型 toolCall.id）：与 tool_execution_* 事件对齐
-                            const callId = String(info.id ?? `tc-${idx}-${Date.now()}`);
-                            const toolName = info.name ?? "tool";
-                            const argsJson =
-                                info.args !== undefined && info.args !== null
-                                    ? JSON.stringify(info.args).slice(0, 4096)
-                                    : "";
-                            // 开始即推送，前端可即时显示"正在执行工具"占位
-                            push({
-                                type: "tool_call_start",
-                                callId,
-                                name: toolName,
-                                argsPreview: argsJson,
-                            });
+                            // 真实 callId（模型 toolCall.id）：与 tool_execution_* 事件对齐。
+                            // 此处仅登记（模型仍在流式产出参数），tool_call_start 由
+                            // tool_execution_start 推送——彼时参数已完整，卡片/面板可取全文。
                             stepToolCalls.set(idx, {
-                                name: toolName,
+                                name: info.name ?? "tool",
                                 startedAt: Date.now(),
                                 ok: false,
-                                callId,
-                                args: argsJson,
+                                callId: String(info.id ?? `tc-${idx}-${Date.now()}`),
+                                args:
+                                    info.args !== undefined && info.args !== null
+                                        ? JSON.stringify(info.args).slice(0, 4096)
+                                        : "",
                             });
                         } else if (ame.type === "toolcall_delta") {
-                            // 参数以 JSON 流式下发：累积兜底（执行事件里才是完整参数/结果）
+                            // 参数以 JSON 流式下发：累积兜底（toolcall_end 时通常已完整）
                             const idx = String(ame.contentIndex ?? "0");
                             const call = stepToolCalls.get(idx);
                             if (call && typeof ame.delta === "string" && call.args.length < 8192)
@@ -270,16 +262,26 @@ export class PiEngine implements AgentEngine {
                         break;
                     }
                     case "tool_execution_start": {
-                        // 工具真实执行开始：补全参数（与 assistantMessageEvent 的 callId 对齐）
+                        // 工具真实执行开始：此刻参数已完整，推送 tool_call_start
+                        // （卡片/面板可取全文：子代理 prompt、计划内容、todo 参数等）
                         const callId = String(event.toolCallId ?? "");
-                        const call = [...stepToolCalls.values()].find((c) => c.callId === callId);
-                        if (call) {
-                            try {
-                                call.args = JSON.stringify(event.args ?? {}).slice(0, 4096);
-                            } catch {
-                                /* 参数不可序列化时保留占位 */
-                            }
+                        const entry = [...stepToolCalls.entries()].find(
+                            ([, c]) => c.callId === callId,
+                        );
+                        let argsPreview: string | undefined;
+                        try {
+                            if (event.args !== undefined)
+                                argsPreview = JSON.stringify(event.args).slice(0, 4096);
+                        } catch {
+                            /* 参数不可序列化时省略 */
                         }
+                        if (entry) entry[1].args = argsPreview ?? entry[1].args;
+                        push({
+                            type: "tool_call_start",
+                            callId,
+                            name: entry?.[1].name ?? String(event.toolName ?? "tool"),
+                            argsPreview: argsPreview ?? "",
+                        });
                         break;
                     }
                     case "tool_execution_end": {

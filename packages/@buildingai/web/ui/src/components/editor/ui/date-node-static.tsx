@@ -1,7 +1,6 @@
 import type { TDateElement } from "platejs";
 import type { SlateElementProps } from "platejs/static";
 import { SlateElement } from "platejs/static";
-import * as React from "react";
 
 export function DateElementStatic(props: SlateElementProps<TDateElement>) {
   const { element } = props;

@@ -11,36 +11,42 @@ import { consoleHttpClient } from "../base";
 /**
  * 卡密兑换类型
  */
-export enum CardRedeemType {
+export const CardRedeemType = {
     /** 订阅会员 */
-    MEMBERSHIP = 1,
+    MEMBERSHIP: 1,
     /** 积分余额 */
-    POINTS = 2,
-}
+    POINTS: 2,
+} as const;
+
+export type CardRedeemType = (typeof CardRedeemType)[keyof typeof CardRedeemType];
 
 /**
  * 卡密使用状态
  */
-export enum CardKeyStatus {
+export const CardKeyStatus = {
     /** 未使用 */
-    UNUSED = 0,
+    UNUSED: 0,
     /** 已使用 */
-    USED = 1,
+    USED: 1,
     /** 已过期 */
-    EXPIRED = 2,
-}
+    EXPIRED: 2,
+} as const;
+
+export type CardKeyStatus = (typeof CardKeyStatus)[keyof typeof CardKeyStatus];
 
 /**
  * 会员时长配置
  */
-export enum MembershipPlanDuration {
-    MONTH = 1,
-    QUARTER = 2,
-    HALF = 3,
-    YEAR = 4,
-    FOREVER = 5,
-    CUSTOM = 6,
-}
+export const MembershipPlanDuration = {
+    MONTH: 1,
+    QUARTER: 2,
+    HALF: 3,
+    YEAR: 4,
+    FOREVER: 5,
+    CUSTOM: 6,
+} as const;
+
+export type MembershipPlanDuration = (typeof MembershipPlanDuration)[keyof typeof MembershipPlanDuration];
 
 /**
  * 自定义时长

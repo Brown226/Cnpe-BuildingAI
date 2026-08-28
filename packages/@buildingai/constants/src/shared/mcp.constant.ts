@@ -1,29 +1,33 @@
 /**
- * MCP服务类型枚举
+ * MCP服务类型
  */
-export enum McpServerType {
+export const McpServerType = {
     /**
      * 用户自定义服务
      */
-    USER = "user",
+    USER: "user",
 
     /**
      * 系统内置服务
      */
-    SYSTEM = "system",
-}
+    SYSTEM: "system",
+} as const;
+
+export type McpServerType = (typeof McpServerType)[keyof typeof McpServerType];
 
 /**
  * MCP服务通信的传输方式
  */
-export enum McpCommunicationType {
+export const McpCommunicationType = {
     /**
      * SSE
      */
-    SSE = "sse",
+    SSE: "sse",
 
     /**
      * StreamableHTTP
      */
-    STREAMABLEHTTP = "streamable-http",
-}
+    STREAMABLEHTTP: "streamable-http",
+} as const;
+
+export type McpCommunicationType = (typeof McpCommunicationType)[keyof typeof McpCommunicationType];

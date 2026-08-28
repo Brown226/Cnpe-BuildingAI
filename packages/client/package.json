@@ -8,7 +8,8 @@
         "dev:desktop": "tauri dev",
         "build:web": "cross-env NODE_OPTIONS=--max-old-space-size=3072 vite build && node ../../scripts/release.mjs",
         "build:desktop": "tauri build",
-        "lint": "eslint .",
+        "check-types": "tsc --noEmit -p tsconfig.app.json",
+    "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "preview": "vite preview",
         "tauri": "tauri"
