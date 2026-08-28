@@ -14,7 +14,6 @@ import { RouterProvider } from "react-router-dom";
 import { SettingsDialogProvider } from "./components/settings-dialog";
 import { DesktopProvider } from "./components/desktop/desktop-provider";
 import { DesktopShellWidgets } from "./components/desktop/desktop-shell-widgets";
-import { CommandPalette } from "./components/desktop/command-palette";
 import { defaultLocale, messages } from "./locales";
 import { router } from "./router";
 
@@ -44,7 +43,7 @@ createRoot(document.getElementById("root")!).render(
                   <Toaster position="top-center" />
                   <RouterProvider router={router} />
                   <DesktopShellWidgets />
-                  <CommandPalette />
+                  {/* CommandPalette 依赖 useNavigate，已移入 Router 上下文内渲染 */}
                 </DesktopProvider>
               </SettingsDialogProvider>
             </AlertDialogProvider>

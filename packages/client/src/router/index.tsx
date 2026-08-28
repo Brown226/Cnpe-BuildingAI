@@ -31,6 +31,7 @@ import { DesktopProjectsSection } from "@/components/desktop/sidebar-projects-se
 import { ModeTabs } from "@/components/desktop/mode-tabs";
 import { DesktopRightPanel } from "@/components/desktop/desktop-right-panel";
 import { SplitPill } from "@/components/desktop/split-pill";
+import { CommandPalette } from "@/components/desktop/command-palette";
 
 /** 登录守卫：未持 token 的访问重定向到登录页（带 redirect 回跳参数） */
 function AuthGuard({ children }: { children: ReactNode }) {
@@ -115,6 +116,10 @@ export const router = createBrowserRouter([
           </DefaultLayout>
         ),
         children: [
+          // 命令面板使用 useNavigate，需在 Router 上下文内渲染（全局浮层）
+          {
+            element: <CommandPalette />,
+          },
           {
             element: <DynamicHomePage />,
             children: [
