@@ -66,6 +66,11 @@ export interface UserInput {
      * 缺省视为 "code"。
      */
     mode?: AgentMode;
+    /**
+     * 智能体 persona（角色设定）：仅在建会话时生效，作为额外 system 消息注入。
+     * 对齐 Kun 的 composerAgent（选中智能体 → 影响下一条新对话）。
+     */
+    agentRole?: string;
 }
 
 export type EngineEvent =

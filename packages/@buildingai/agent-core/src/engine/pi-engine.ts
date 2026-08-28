@@ -149,7 +149,7 @@ export class PiEngine implements AgentEngine {
         try {
             const mode = input.mode ?? "code";
             this.verifyPrefix(mode);
-            const live = await this.ensureSession(sessionId, mode);
+            const live = await this.ensureSession(sessionId, mode, input.agentRole);
             const queue = this.getQueue(sessionId);
             const push = (event: EngineEvent): void => {
                 queue.push(event);
@@ -363,7 +363,7 @@ export class PiEngine implements AgentEngine {
         } as unknown as Model<Api>;
     }
 
-    private async ensureSession(sessionId: string, mode: AgentMode): Promise<LiveSession> {
+    private async ensureSession(sessionId: string, mode: AgentMode, agentRole?: string): Promise<LiveSession> {
         const existing = this.sessions.get(sessionId);
         if (existing) return existing;
         if (!this.runtime || !this.startConfig)
@@ -381,12 +381,16 @@ export class PiEngine implements AgentEngine {
         const skillInstructions = (this.startConfig?.skills ?? []).map(
             (s) => `【技能：${s.name}】${s.description}\n${s.content}`,
         );
+        // 智能体 persona（选中智能体 → 角色设定作为 system 注入，对齐 Kun composerAgent）
+        const agentInstructions = agentRole?.trim()
+            ? [`【智能体 persona】\n${agentRole.trim()}`]
+            : [];
         const resourceLoader = new DefaultResourceLoader({
             cwd,
             agentDir,
             systemPrompt: PLATFORM_SYSTEM_PROMPT,
             // T1.1 双模式：模式指令作为第二 system 消息注入（Kun 式，位于稳定前缀之后）
-            appendSystemPrompt: [MODE_INSTRUCTIONS[mode], ...skillInstructions],
+            appendSystemPrompt: [MODE_INSTRUCTIONS[mode], ...skillInstructions, ...agentInstructions],
             noExtensions: true,
             noSkills: true,
             noPromptTemplates: true,

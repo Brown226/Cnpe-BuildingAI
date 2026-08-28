@@ -1,7 +1,7 @@
 import { useChat } from "@ai-sdk/react";
 import type { MessageRecord } from "@buildingai/services/web";
-import { getConversationInfo, getConversationMessages } from "@buildingai/services/web";
-import { useAuthStore } from "@buildingai/stores";
+import { getAgent, getConversationInfo, getConversationMessages } from "@buildingai/services/web";
+import { useAssistantStore, useAuthStore } from "@buildingai/stores";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ChatStatus, FileUIPart, UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
@@ -15,6 +15,18 @@ import { getDesktopAgentTransport } from "@/services/desktop/desktop-agent-trans
 import { getLocalThread, toUIMessages } from "@/services/desktop/thread-store";
 import { useDesktop } from "@/components/desktop/desktop-provider";
 import { getApiBaseUrl } from "@/utils/api";
+
+/** 解析当前选中的智能体 persona 角色设定（对齐 Kun composerAgent） */
+async function resolveAgentRole(): Promise<string | undefined> {
+    const composerAgentId = useAssistantStore.getState().composerAgentId;
+    if (!composerAgentId) return undefined;
+    try {
+        const agent = await getAgent(composerAgentId);
+        return agent.rolePrompt?.trim() || undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 /** Delay before running post-stop side effects, giving backend time to persist usage. */
 const STOP_FINALIZE_DELAY_MS = 350;
@@ -618,6 +630,7 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
           threadId: localThreadId,
           workspaceId: selectedWorkspace?.id ?? null,
           mode: activeMode,
+          agentRole: await resolveAgentRole(),
         });
       }
 

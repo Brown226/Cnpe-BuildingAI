@@ -30,6 +30,8 @@ interface ThreadContext {
     workspaceId: string | null;
     /** 会话模式（T1.1 双模式）：code | work；首次建会话时生效 */
     mode?: "code" | "work";
+    /** 智能体 persona 角色设定：首次建会话时注入 system */
+    agentRole?: string;
 }
 
 /** 每个聊天线程一个本地会话；线程 id → Pi sessionId */
@@ -303,7 +305,8 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
             );
 
             const mode = this.threadContext?.mode ?? modeByChat.get(chatId) ?? "code";
-            await rpc("session.send", { sessionId: sid, text, mode });
+            const agentRole = this.threadContext?.agentRole;
+            await rpc("session.send", { sessionId: sid, text, mode, agentRole });
             // aborted 场景下 done 可能仍随后到达，但流已通过 abort 块关闭
             if (aborted) {
                 /* 等待引擎侧 done/abort 收尾；超时兜底 */

@@ -50,6 +50,7 @@ import { useFileUpload } from "../../hooks/use-file-upload";
 import type { Model } from "../../types";
 import { McpSelector } from "../mcp-selector";
 import { VoiceInput } from "./voice-input";
+import { AgentPicker } from "../agent-picker";
 
 export type PromptInputHiddenTool =
   | "more"
@@ -383,6 +384,7 @@ const PromptInputInner = memo(
         </AIPromptInputBody>
         <AIPromptInputFooter className="h-13 py-0">
           <AIPromptInputTools>
+            {!hiddenSet.has("more") && <AgentPicker />}
             {(() => {
               const showFile =
                 availableFileTypes.length > 0 && !hiddenSet.has("file") && !hiddenSet.has("more");

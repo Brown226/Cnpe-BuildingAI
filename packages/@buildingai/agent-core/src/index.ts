@@ -708,10 +708,10 @@ function normalizeMode(mode: string | undefined): "code" | "work" {
  */
 rpc.register("session.send", (params) => {
     requireInitialized();
-    const p = params as { sessionId?: string; text?: string; mode?: string };
+    const p = params as { sessionId?: string; text?: string; mode?: string; agentRole?: string };
     if (!p?.sessionId || !p.text)
         throw new RpcError(RpcErrorCodes.InvalidParams, "session.send 需要 sessionId 与 text");
-    void pumpSessionEvents(p.sessionId, p.text, p.mode).catch((err) => {
+    void pumpSessionEvents(p.sessionId, p.text, p.mode, p.agentRole).catch((err) => {
         logStderr(`session.send 泵异常: ${String(err)}`);
         rpc.notify("engine/event", {
             sessionId: p.sessionId,
@@ -721,13 +721,18 @@ rpc.register("session.send", (params) => {
     return { accepted: true };
 });
 
-async function pumpSessionEvents(sessionId: string, text: string, mode?: string): Promise<void> {
+async function pumpSessionEvents(
+    sessionId: string,
+    text: string,
+    mode?: string,
+    agentRole?: string,
+): Promise<void> {
     // T1.3：user 消息先落盘；事件流累计 assistant 文本与工具摘要，done/error 时落盘；
     // 每个引擎事件同时追加到 events.jsonl（Kun 完整事件流语义，诊断/回放/审计用）
     sessions?.appendMessage(sessionId, { role: "user", text, ts: Date.now() });
     let assistantText = "";
     let toolSummary = "";
-    for await (const event of engine.sendMessage(sessionId, { text, mode: normalizeMode(mode) })) {
+    for await (const event of engine.sendMessage(sessionId, { text, mode: normalizeMode(mode), agentRole })) {
         sessions?.appendEvent(sessionId, event);
         if (event.type === "text_delta") assistantText += event.delta;
         else if (event.type === "tool_call_end")
