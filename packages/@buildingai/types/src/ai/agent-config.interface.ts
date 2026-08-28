@@ -339,7 +339,7 @@ export interface AgentCore {
     id: string;
     name: string;
     description?: string | null;
-    createMode?: "direct" | "coze" | "dify" | null;
+    createMode?: "direct" | "coze" | "dify" | "ragflow" | null;
     avatar?: string | null;
     chatAvatar?: string | null;
     thirdPartyIntegration?: ThirdPartyIntegrationConfig | null;
@@ -400,7 +400,7 @@ export interface CreateAgentParams {
     name: string;
     description?: string;
     avatar?: string;
-    createMode?: "direct" | "coze" | "dify";
+    createMode?: "direct" | "coze" | "dify" | "ragflow";
     modelConfig?: ModelConfig;
     thirdPartyIntegration?: ThirdPartyIntegrationConfig;
     tagIds?: string[];
@@ -439,7 +439,7 @@ export type UpdateAgentConfigParams = Partial<
     >
 > & {
     tagIds?: string[];
-    createMode?: "direct" | "coze" | "dify";
+    createMode?: "direct" | "coze" | "dify" | "ragflow";
 };
 
 export interface PublishedAgentDetail extends Omit<
