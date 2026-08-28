@@ -1,4 +1,5 @@
 import type { AiProvider } from "@buildingai/services/web";
+import { transcribeAgentAudio, useMyAgentsInfiniteQuery } from "@buildingai/services/web";
 import {
   getLocalStorage,
   safeJsonParse,
@@ -7,6 +8,7 @@ import {
 } from "@buildingai/stores";
 import type { UIMessage } from "ai";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import type { RawMessageRecord } from "../libs/message-repository";
 import { convertProvidersToModels } from "../libs/provider-converter";
@@ -176,6 +178,31 @@ export function useAssistant(options: UseAssistantOptions): AssistantContextValu
 
   const { liked, disliked, onLike, onDislike } = useFeedback(streamMessages, currentThreadId);
 
+  // ⑤ 语音：接通转写链路（对齐 web 智能体聊天上下文的 onVoiceAudio 语义）。
+  // 转写智能体取选中 persona，未选则取「我的智能体」列表第一个；均无时不启用麦克风。
+  const composerAgentId = useAssistantStore((s) => s.composerAgentId);
+  const { data: myAgentsData } = useMyAgentsInfiniteQuery({ pageSize: 50 });
+  const voiceAgentId = useMemo(() => {
+    if (composerAgentId) return composerAgentId;
+    return myAgentsData?.pages?.flatMap((p) => p.items)[0]?.id ?? "";
+  }, [composerAgentId, myAgentsData]);
+  const onVoiceAudio = useCallback(
+    async (audioBlob: Blob): Promise<string | void> => {
+      if (!voiceAgentId) {
+        toast.error("语音听写需要一个已配置语音识别 (STT) 的智能体");
+        return undefined;
+      }
+      try {
+        const result = await transcribeAgentAudio(voiceAgentId, audioBlob);
+        return result.text;
+      } catch (cause) {
+        toast.error(`语音转写失败：${cause instanceof Error ? cause.message : String(cause)}`);
+        return undefined;
+      }
+    },
+    [voiceAgentId],
+  );
+
   const { isLoadingMessages, isLoadingMoreMessages, hasMoreMessages, loadMoreMessages } =
     useMessagesPaging({
       setMessages,
@@ -299,6 +326,7 @@ export function useAssistant(options: UseAssistantOptions): AssistantContextValu
     onSetFeature: setFeatureFlag,
     onLike,
     onDislike,
+    onVoiceAudio: voiceAgentId ? onVoiceAudio : undefined,
     addToolApprovalResponse,
   };
 }
