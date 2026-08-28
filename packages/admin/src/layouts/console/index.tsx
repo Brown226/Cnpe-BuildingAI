@@ -52,6 +52,7 @@ import SystemPayConfigIndexPage from "@/pages/console/system/pay-config";
 import SystemPm2LogRotateIndexPage from "@/pages/console/system/pm2-log-rotate";
 import SystemStorageConfigIndexPage from "@/pages/console/system/storage-config";
 import SystemWebsiteConfigIndexPage from "@/pages/console/system/website-config";
+import SystemDesktopAuditIndexPage from "@/pages/console/system/desktop-audit";
 import UserListIndexPage from "@/pages/console/user/list";
 import DepartmentIndexPage from "@/pages/console/user/department";
 
@@ -107,6 +108,8 @@ function ConsoleRoutes() {
       { path: "/mcp", element: <AiMcpIndexPage /> },
       { path: "/extension", element: <ExtensionIndexPage /> },
       { path: "/secret", element: <AiSecretIndexPage /> },
+      // T4.11 桌面审计诊断页（临时静态路由，menu 数据就绪后可移除）
+      { path: "/desktop-audit", element: <SystemDesktopAuditIndexPage /> },
       { path: "/operation", element: <OperationIndexPage /> },
       {
         path: "operation/*",
