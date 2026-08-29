@@ -4,6 +4,7 @@
  * stdout 只输出协议帧——任何日志必须走 stderr。
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +35,7 @@ import { SessionJsonlStore } from "./session/jsonl-store.js";
 import { AutomationScheduler } from "./schedule/scheduler.js";
 import { assertAutomationTimezone } from "./schedule/schedules.js";
 import { BrowserBridge } from "./browser/bridge.js";
+import { TerminalManager } from "./terminal/pty.js";
 
 const rpc = new RpcServer();
 const audit = new AuditCollector();
@@ -50,6 +52,12 @@ let sessions: SessionJsonlStore | null = null;
 let scheduler: AutomationScheduler | null = null;
 /** T3.6 浏览器桥：agent 工具 → 前端驱动内嵌浏览器 */
 const browser = new BrowserBridge((method, params) => rpc.notify(method, params));
+/** B1 底部终端：pty 会话管理，cwd 强制在工作区白名单内 */
+const terminal = new TerminalManager(
+    workspaces,
+    (id, data) => rpc.notify("terminal.output", { id, data }),
+    (id, exitCode) => rpc.notify("terminal.exit", { id, exitCode }),
+);
 
 /** 平台自有工具：策略管控下的文件/命令能力，以受控形式交给 Agent 引擎。
  *  T2.4 工具按模式隔离：list_dir/read_file 通用（两模式）；
@@ -380,6 +388,7 @@ rpc.register("initialize", (params) => {
                 "workspace.add",
                 "workspace.remove",
                 "workspace.setActive",
+                "workspace.createConversationDir",
                 "office.parse",
                 "office.exportDocx",
                 "office.exportXlsx",
@@ -498,7 +507,9 @@ rpc.register("workspace.add", (params) => {
 rpc.register("workspace.remove", (params) => {
     const dir = (params as { dir?: string })?.dir;
     if (!dir) throw new RpcError(RpcErrorCodes.InvalidParams, "缺少 dir 参数");
-    return { removed: workspaces.remove(String(dir)) };
+    const removed = workspaces.remove(String(dir));
+    if (removed) terminal.disposeByWorkspace(String(dir));
+    return { removed };
 });
 
 /**
@@ -506,8 +517,7 @@ rpc.register("workspace.remove", (params) => {
  * 置顶白名单并把引擎默认 cwd 切到该目录——已存在的会话保持原 cwd，
  * 新建会话即落入新激活目录。
  */
-rpc.register("workspace.setActive", (params) => {
-    requireInitialized();
+rpc.register("workspace.setActive", (params) => {    requireInitialized();
     const dir = str(params, "dir");
     const list = workspaces.list();
     const hit = list.find((l) => l.toLowerCase() === dir.toLowerCase());
@@ -516,6 +526,19 @@ rpc.register("workspace.setActive", (params) => {
     workspaces.setAll([hit, ...list.filter((l) => l !== hit)]);
     process.env.AGENT_CORE_WORKSPACE = hit;
     return { active: hit };
+});
+
+/** C1 时间戳会话目录（对齐 Kun conversation:create-workspace 语义）：
+ *  在「会话根」（缺省 ~/Documents/华数工作区，可用 HS_CONVERSATION_ROOT 覆盖）
+ *  下创建 YYYYMMDD-HHmmss 子目录，返回路径供前端加入白名单并激活。 */
+rpc.register("workspace.createConversationDir", () => {
+    const root = process.env.HS_CONVERSATION_ROOT ?? path.join(os.homedir(), "Documents", "华数工作区");
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    const dir = path.join(root, stamp);
+    fs.mkdirSync(dir, { recursive: true });
+    return { dir };
 });
 
 // ── 文件操作 ───────────────────────────────────────────────────────────
@@ -707,6 +730,32 @@ rpc.onNotification("browser/result", (raw) => {
     const p = raw as { requestId?: string; result?: string; error?: string };
     if (!p?.requestId) return;
     browser.respond(p.requestId, p.result, p.error);
+});
+
+// ── 底部终端（B1：pty 会话，cwd=激活工作区；输入/缩放走通知流无响应） ──
+
+rpc.register("terminal.create", (params) => {
+    requireInitialized();
+    const p = (params ?? {}) as { cwd?: string; cols?: number; rows?: number };
+    return terminal.create(String(p.cwd ?? ""), Number(p.cols), Number(p.rows));
+});
+
+rpc.onNotification("terminal.input", (raw) => {
+    const p = raw as { id?: string; data?: string };
+    if (!p?.id || typeof p.data !== "string") return;
+    terminal.write(p.id, p.data);
+});
+
+rpc.onNotification("terminal.resize", (raw) => {
+    const p = raw as { id?: string; cols?: number; rows?: number };
+    if (!p?.id || typeof p.cols !== "number" || typeof p.rows !== "number") return;
+    terminal.resize(p.id, p.cols, p.rows);
+});
+
+rpc.onNotification("terminal.dispose", (raw) => {
+    const p = raw as { id?: string };
+    if (!p?.id) return;
+    terminal.dispose(p.id);
 });
 
 // ── 办公文档直通（与 fs.* 同级：供 UI/测试确定性调用；引擎侧另有同名工具） ──
@@ -930,6 +979,7 @@ process.on("disconnect", () => {
     for (const root of [...watchStates.keys()]) stopWatch(root);
     approvals.rejectAll("sidecar 停机");
     browser.rejectAll();
+    terminal.disposeAll();
     scheduler?.dispose();
     void audit.shutdown().finally(() => process.exit(0));
 });
