@@ -26,6 +26,7 @@ import { useDesktop } from "@/components/desktop/desktop-provider";
 import { WorkspacePicker } from "@/components/desktop/workspace-picker";
 import { DatasetPicker } from "./components/dataset-picker";
 import { GitBranchPicker } from "./components/input/git-branch-picker";
+import { TaskProfilePicker } from "./components/input/task-profile-picker";
 import { getLocalThread } from "@/services/desktop/thread-store";
 import { useAssistantContext } from "./context";
 
@@ -267,6 +268,10 @@ const InputArea = memo(function InputArea({
             <WorkspacePicker />
             <DatasetPicker />
             <GitBranchPicker />
+            <div className="ml-auto">
+              {/* 任务档案（Kun TaskProfile：档位 → agentRole 注入） */}
+              <TaskProfilePicker />
+            </div>
           </div>
         )}
         <PromptInput

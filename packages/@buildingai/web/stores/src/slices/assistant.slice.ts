@@ -9,21 +9,27 @@ export interface AssistantState {
     selectedModelId: string;
     /** 选中的智能体（新会话应用的 persona，对齐 Kun composerAgentId）；空=默认 */
     composerAgentId: string;
+    /** 任务档案（对齐 Kun TaskProfile）：随 agentRole 链路注入引擎，空=标准 */
+    composerTaskProfileId: string;
     /** 输入条已引用的工作区文件（relativePath 列表，发送时内容注入 prompt） */
     composerFileReferences: string[];
     /** 输入条已挂载的知识库（数据集 id 列表，发送时随 session.send 下发引擎） */
     composerDatasetIds: string[];
     /** 当前会话 token 用量（input=最近一轮，output/cache=累计） */
     sessionUsage: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
+    /** Graph 编排轮进行中（对齐 Kun graphModeRunning 徽标） */
+    graphRunning: boolean;
 }
 
 export interface AssistantActions {
     setSelectedModelId: (id: string) => void;
     setComposerAgentId: (id: string) => void;
+    setComposerTaskProfileId: (id: string) => void;
     setComposerFileReferences: (paths: string[]) => void;
     setComposerDatasetIds: (ids: string[]) => void;
     recordSessionUsage: (usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number }) => void;
     resetSessionUsage: () => void;
+    setGraphRunning: (running: boolean) => void;
 }
 
 export type AssistantSlice = AssistantState & AssistantActions;
@@ -35,11 +41,15 @@ export const createAssistantSlice: StateCreator<AssistantSlice, [], [], Assistan
     setSelectedModelId: (id) => set({ selectedModelId: id }),
     composerAgentId: "",
     setComposerAgentId: (id) => set({ composerAgentId: id }),
+    composerTaskProfileId: "standard",
+    setComposerTaskProfileId: (id) => set({ composerTaskProfileId: id }),
     composerFileReferences: [],
     setComposerFileReferences: (paths) => set({ composerFileReferences: paths }),
     composerDatasetIds: [],
     setComposerDatasetIds: (ids) => set({ composerDatasetIds: ids }),
     sessionUsage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+    graphRunning: false,
+    setGraphRunning: (running) => set({ graphRunning: running }),
     recordSessionUsage: (usage) =>
         set((state) => ({
             sessionUsage: {

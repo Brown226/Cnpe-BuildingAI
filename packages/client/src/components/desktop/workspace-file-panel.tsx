@@ -47,6 +47,43 @@ interface RecentFile {
   size?: number;
 }
 
+/** C2 产出画廊（对齐 Kun Work 右面板「文档」产出区语义）：
+ *  按 mtime 列出工作区内最近产出文档，点击即进入既有预览链路。 */
+const GALLERY_EXTS = [".docx", ".xlsx", ".xlsm", ".csv", ".pdf", ".pptx", ".ppt"];
+
+function GalleryBlock({
+  recent,
+  onOpen,
+}: {
+  recent: RecentFile[];
+  onOpen: (path: string) => void;
+}) {
+  const docs = recent.filter((f) => GALLERY_EXTS.some((ext) => f.name.toLowerCase().endsWith(ext)));
+  if (docs.length === 0) return null;
+  return (
+    <div className="border-b px-3 py-2">
+      <div className="text-muted-foreground mb-1 flex items-center justify-between text-[11px] font-medium">
+        <span>产出文档</span>
+        <span className="text-[10px] font-normal">最近生成 ▸ 点击预览</span>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        {docs.map((f) => (
+          <button
+            key={f.path}
+            type="button"
+            className="hover:bg-accent/60 flex min-w-0 flex-col items-center gap-1 rounded-md border px-1 py-1.5 text-center"
+            title={`${f.path}\n${new Date(f.mtimeMs).toLocaleString()}`}
+            onClick={() => onOpen(f.path)}
+          >
+            <FileIcon className="text-muted-foreground size-4" />
+            <span className="w-full truncate text-[10px]">{f.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const joinPath = (dir: string, name: string) => `${dir.replace(/[\\/]+$/, "")}\\${name}`;
 const relFromRoot = (root: string, p: string) =>
   p.startsWith(root) ? p.slice(root.length).replace(/^[\\/]+/, "") : p;
@@ -81,7 +118,7 @@ export function WorkspaceFilePanel({
   /** 预览目标存在性上报（侧轨「预览」入口的显隐依据） */
   onPreviewChange?: (hasPreview: boolean) => void;
 }) {
-  const { desktop, selectedWorkspace, refreshWorkspacesSignal } = useDesktop();
+  const { desktop, selectedWorkspace, refreshWorkspacesSignal, activeMode } = useDesktop();
   const [tree, setTree] = useState<Record<string, Entry[]>>({});
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -157,7 +194,8 @@ export function WorkspaceFilePanel({
 
   const loadRecent = useCallback(async (dir: string) => {
     try {
-      const r = await desktopApi.fsRecent(dir, 8);
+      // C2 产出画廊：拉大采样窗口供 Work 模式文档区过滤
+      const r = await desktopApi.fsRecent(dir, 14);
       setRecent(r.files);
     } catch {
       setRecent([]);
@@ -573,6 +611,14 @@ export function WorkspaceFilePanel({
               className="border-input bg-background placeholder:text-muted-foreground h-7 w-full rounded-md border px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
+
+          {/* C2 产出画廊（Work 模式）：工作区最近产出文档（docx/xlsx/pdf/pptx/csv） */}
+          {activeMode === "work" && !filter.trim() && (
+            <GalleryBlock
+              recent={recent}
+              onOpen={(path) => void openFile(path)}
+            />
+          )}
 
           <div className="flex-1 overflow-y-auto py-1">
             {/* 钉住的预览（Kun pinnedFilePreviewTargets） */}

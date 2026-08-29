@@ -18,17 +18,24 @@ import { usePlanStore } from "@/components/desktop/plan-store";
 import { useTodoStore } from "@/components/desktop/todo-store";
 import { buildComposerFileContextPrompt } from "../libs/composer-file-references";
 import { getApiBaseUrl } from "@/utils/api";
+import { taskProfileById } from "../libs/task-profiles";
 
-/** 解析当前选中的智能体 persona 角色设定（对齐 Kun composerAgent） */
+/** 解析当前选中的智能体 persona 角色设定（对齐 Kun composerAgent）+ 任务档案指令 */
 async function resolveAgentRole(): Promise<string | undefined> {
     const composerAgentId = useAssistantStore.getState().composerAgentId;
-    if (!composerAgentId) return undefined;
-    try {
-        const agent = await getAgent(composerAgentId);
-        return agent.rolePrompt?.trim() || undefined;
-    } catch {
-        return undefined;
+    const profilePrompt = taskProfileById(useAssistantStore.getState().composerTaskProfileId)?.prompt;
+    let persona: string | undefined;
+    if (composerAgentId) {
+        try {
+            const agent = await getAgent(composerAgentId);
+            persona = agent.rolePrompt?.trim() || undefined;
+        } catch {
+            persona = undefined;
+        }
     }
+    // 任务档案（Kun TaskProfile）：独立于智能体 persona，两者可叠加
+    if (!profilePrompt) return persona;
+    return persona ? `${persona}\n\n${profilePrompt}` : profilePrompt;
 }
 
 /** 文件 @ 提及生效：把已引用文件内容拼进上下文（对齐 Kun buildComposerFileContextPrompt） */

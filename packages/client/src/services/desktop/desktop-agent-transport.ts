@@ -86,10 +86,13 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
         messages: UIMessage[];
         abortSignal: AbortSignal | undefined;
     }): Promise<ReadableStream<UIMessageChunk>> {
-        const text = extractUserText(options.messages);
+        // /graph 前缀：本轮进入 Graph 编排（对齐 Kun send-time 解析）
+        const raw = extractUserText(options.messages);
+        const graph = /^\s*\/graph\b/.test(raw);
+        const text = graph ? raw.replace(/^\s*\/graph\b\s*/, "") : raw;
         return new ReadableStream<UIMessageChunk>({
             start: (controller) => {
-                void this.pump(controller, this.chatKey, text, options.abortSignal);
+                void this.pump(controller, this.chatKey, text, options.abortSignal, graph);
             },
             cancel: () => {
                 // 下游放弃消费（组件卸载/切换会话）：中断本地引擎回合
@@ -121,6 +124,7 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
         chatId: string,
         text: string,
         abortSignal: AbortSignal | undefined,
+        graph = false,
     ): Promise<void> {
         let aborted = false;
         let finished = false;
@@ -286,6 +290,7 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
                         break;
                     }
                     case "done": {
+                        if (graph) useAssistantStore.getState().setGraphRunning(false);
                         if (ev.stopReason === "aborted") stopAborted = true;
                         endOpen();
                         if (stopAborted) {
@@ -335,11 +340,18 @@ export class DesktopAgentTransport implements ChatTransport<UIMessage> {
             const agentRole = this.threadContext?.agentRole;
             // ⑤ 知识库挂载：输入条选择器当前所选数据集随每轮下发（会话级挂载）
             const datasetIds = useAssistantStore.getState().composerDatasetIds;
+            // 模型选择器生效：携带当前选中模型（引擎侧 setModel 幂等，变化才重建）
+            const modelId = useAssistantStore.getState().selectedModelId;
+            if (modelId) {
+                await rpc("session.setModel", { sessionId: sid, modelId }).catch(() => undefined);
+            }
+            if (graph) useAssistantStore.getState().setGraphRunning(true);
             await rpc("session.send", {
                 sessionId: sid,
                 text,
                 mode,
                 agentRole,
+                ...(graph ? { graph: true } : {}),
                 ...(datasetIds.length > 0 ? { datasetIds } : {}),
             });
             // aborted 场景下 done 可能仍随后到达，但流已通过 abort 块关闭

@@ -33,6 +33,7 @@ import {
   ListTodo,
   PaperclipIcon,
   Plus,
+  Share2,
   Square,
   X,
 } from "lucide-react";
@@ -52,6 +53,7 @@ import { useFileUpload } from "../../hooks/use-file-upload";
 import type { Model } from "../../types";
 import { McpSelector } from "../mcp-selector";
 import { ModelSelector } from "../model-selector";
+import { ExecutionPicker } from "./execution-picker";
 import { VoiceInput } from "./voice-input";
 import { ComposerModeTools } from "./composer-mode-tools";
 import { AgentPicker } from "../agent-picker";
@@ -189,6 +191,7 @@ const PromptInputInner = memo(
     );
     const onSelectModel = context?.onSelectModel;
     const isConversationInProgress = status === "submitted" || status === "streaming";
+    const graphRunning = useAssistantStore((s) => s.graphRunning);
     // 排队消息（Kun FloatingComposerQueuedMessages）：进行中提交入队，空闲自动发送
     const queuedRef = useRef<PromptInputMessage[]>([]);
     const [queuedCount, setQueuedCount] = useState(0);
@@ -343,7 +346,12 @@ const PromptInputInner = memo(
         else if (commandId === "code") setMode("code");
         else if (commandId === "work") setMode("work");
         else if (commandId === "archive" && currentThreadId) archiveThread(currentThreadId);
-        controller.textInput.setInput("");
+        else if (commandId === "graph") {
+          // 保留当前输入并在其前插入 /graph 前缀（发送时解析，Kun send-time 语义）
+          const cur = controller.textInput.value;
+          controller.textInput.setInput(cur.trim() ? `/graph ${cur}` : "/graph ");
+        }
+        if (commandId !== "graph") controller.textInput.setInput("");
       },
       onDismiss: () => undefined,
     });
@@ -551,6 +559,13 @@ const PromptInputInner = memo(
           />
         )}
         <PromptInputAttachmentsList />
+        {/* Graph 编排运行徽标（对齐 Kun graphModeRunning） */}
+        {desktop && graphRunning && (
+          <div className="bg-indigo-500/10 text-indigo-700 dark:text-indigo-200 mx-3 mb-1 inline-flex h-7 shrink-0 items-center gap-1.5 self-start rounded-full px-2.5 text-[12px] font-medium">
+            <Share2 className="size-3.5" />
+            <span>Graph: 计划/委派/监督/审查/汇总</span>
+          </div>
+        )}
         {/* 文件引用 ContextChips（对齐 Kun FloatingComposerContextChips） */}
         {desktop && references.length > 0 && (
           <div className="flex flex-wrap gap-1 px-3 pb-1">
@@ -651,6 +666,7 @@ const PromptInputInner = memo(
             {!hiddenSet.has("more") && <AgentPicker />}
             {desktop && <UsageBadge />}
             {desktop && <ComposerModeTools />}
+            {desktop && <ExecutionPicker />}
             {(() => {
               const showFile =
                 availableFileTypes.length > 0 && !hiddenSet.has("file") && !hiddenSet.has("more");

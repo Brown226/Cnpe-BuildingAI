@@ -1,10 +1,10 @@
 /**
  * 斜杠命令目录（对齐 Kun floating-composer-commands，裁剪为 BuildingAI 真实能力）。
- * 命令：/new 新建会话、/archive 归档、/code 与 /work 模式切换。
+ * 命令：/new 新建会话、/archive 归档、/code 与 /work 模式切换、/graph 图编排。
  * 说明：Kun 的 /plan /btw /review /compact /fork /goal 是其 agent 循环的手动命令，
  * BuildingAI 的 Pi 引擎无对应（压缩为自动），故不迁移——避免无后端的虚假命令。
  */
-import { Archive, Code2, FileText, Plus } from "lucide-react";
+import { Archive, Code2, FileText, Plus, Share2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type SlashCommand = {
@@ -57,6 +57,15 @@ export function buildSlashCommands(input: {
       icon: <Archive className="size-4" strokeWidth={1.9} />,
       disabled: threadActionDisabled,
       badge: "/archive",
+    },
+    {
+      id: "graph",
+      title: "Graph 图编排",
+      description: "以计划→子代理编排队列执行并汇总（发送时解析 /graph 前缀）",
+      keywords: ["graph", "编排", "图", "子代理"],
+      icon: <Share2 className="size-4" strokeWidth={1.9} />,
+      disabled: threadActionDisabled,
+      badge: "/graph",
     },
   ];
 }
