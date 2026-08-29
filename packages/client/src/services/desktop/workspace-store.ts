@@ -57,9 +57,9 @@ async function sha256Hex(input: string): Promise<string> {
         .join("");
 }
 
-export async function makeWorkspaceEntry(path: string): Promise<WorkspaceEntry> {
+export async function makeWorkspaceEntry(path: string, kind?: WorkspaceEntry["kind"]): Promise<WorkspaceEntry> {
     const id = `ws_${(await sha256Hex(path)).slice(0, 12)}`;
-    return { id, name: basename(path), path, addedAt: Date.now() };
+    return { id, name: basename(path), path, addedAt: Date.now(), kind };
 }
 
 /** 追加（去重置顶，超限淘汰最旧），返回新列表与应选中的条目 */

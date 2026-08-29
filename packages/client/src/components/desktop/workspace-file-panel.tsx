@@ -7,21 +7,18 @@
 import {
   ArrowDownAZ,
   ArrowUpAZ,
-  GitBranch,
   ChevronDown,
   ChevronRight,
-  ClipboardCheck,
   Copy,
   ExternalLink,
   File as FileIcon,
   FilePlus,
   FolderOpen,
   FolderPlus,
-  Globe,
-  ListTodo,
   Loader2,
   MoreHorizontal,
   Pencil,
+  Pin,
   Plus,
   RefreshCw,
   Trash2,
@@ -40,7 +37,6 @@ import { BrowserPanel } from "./browser-panel";
 import { SlidesPreview } from "./slides-preview";
 import { MarkdownEditor } from "./markdown-editor";
 import { TodoPanel } from "./todo-panel";
-import { selectActiveTodos, useTodoStore } from "./todo-store";
 import { PlanPanel } from "./plan-panel";
 
 type Entry = { name: string; type: "file" | "dir"; size?: number; mtimeMs?: number };
@@ -67,21 +63,25 @@ function normalizeSheetShape(rows: unknown[][]): unknown[][] {
   );
 }
 
+export type PanelTab = "files" | "todo" | "plan" | "preview" | "git" | "browser";
+
 export function WorkspaceFilePanel({
   open,
-  onClose,
   embedded = false,
+  tab,
+  onTabChange,
+  onPreviewChange,
 }: {
   open: boolean;
-  onClose: () => void;
   /** T1.6 三栏布局：true 时作为常驻右栏（flex 子元素），false 时为固定弹出浮层 */
   embedded?: boolean;
+  /** 受控 tab（右栏图标侧轨驱动，Kun side-rail 语义） */
+  tab: PanelTab;
+  onTabChange: (tab: PanelTab) => void;
+  /** 预览目标存在性上报（侧轨「预览」入口的显隐依据） */
+  onPreviewChange?: (hasPreview: boolean) => void;
 }) {
   const { desktop, selectedWorkspace, refreshWorkspacesSignal } = useDesktop();
-  const [tab, setTab] = useState<"files" | "todo" | "plan" | "preview" | "git" | "browser">("files");
-  // ② Todo Tab：待办计数徽标（todo 扩展快照经 transport 归档）
-  const activeTodos = useTodoStore(selectActiveTodos);
-  const todoCount = activeTodos.length;
   const [tree, setTree] = useState<Record<string, Entry[]>>({});
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -108,6 +108,33 @@ export function WorkspaceFilePanel({
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
+  /** 钉住的文件预览（Kun pinnedFilePreviewTargets 语义；localStorage 上限 12） */
+  const [pinned, setPinned] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const v = JSON.parse(window.localStorage.getItem("huashu.desktop.pinnedPreview.v1") ?? "[]") as unknown;
+      return Array.isArray(v) ? v.filter((p): p is string => typeof p === "string").slice(0, 12) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const savePinned = (next: string[]) => {
+    setPinned(next);
+    try {
+      window.localStorage.setItem("huashu.desktop.pinnedPreview.v1", JSON.stringify(next));
+    } catch {
+      /* 忽略存储失败 */
+    }
+  };
+
+  const togglePin = (path: string) => {
+    savePinned(
+      pinned.includes(path)
+        ? pinned.filter((p) => p !== path)
+        : [path, ...pinned].slice(0, 12),
+    );
+  };
 
   const root = selectedWorkspace?.path ?? null;
 
@@ -142,7 +169,7 @@ export function WorkspaceFilePanel({
     setTree({});
     setExpanded(new Set());
     setFilter("");
-    setTab("files");
+    onTabChange("files");
     setPreview(null);
     void loadDir(root);
     void loadRecent(root);
@@ -167,6 +194,11 @@ export function WorkspaceFilePanel({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, root, refreshWorkspacesSignal, loadDir, loadRecent]);
+
+  // 预览目标存在性 → 侧轨「预览」入口显隐
+  useEffect(() => {
+    onPreviewChange?.(preview !== null);
+  }, [preview, onPreviewChange]);
 
   if (!desktop || !open || !root) return null;
 
@@ -212,7 +244,7 @@ export function WorkspaceFilePanel({
   const openFile = async (path: string) => {
     setPreviewLoading(true);
     setPreview({ path, text: "", truncated: false, kind: "text" });
-    setTab("preview");
+    onTabChange("preview");
     setEditing(false);
     setEditText("");
     const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
@@ -385,7 +417,7 @@ export function WorkspaceFilePanel({
       await loadDir(parent);
       if (preview?.path === path || (isDir && preview?.path.startsWith(path))) {
         setPreview(null);
-        setTab("files");
+        onTabChange("files");
       }
       void loadRecent(root);
     });
@@ -495,110 +527,10 @@ export function WorkspaceFilePanel({
     <div
       className={
         embedded
-          ? "bg-background flex h-full w-80 shrink-0 flex-col border-l"
+          ? "bg-background flex h-full min-w-0 shrink-0 flex-col"
           : "bg-background fixed inset-y-0 right-0 z-40 flex w-80 flex-col border-l shadow-lg"
       }
     >
-      {/* tab 行：文件 / 预览（Kun 布局） */}
-      <div className="flex items-center gap-1 border-b px-2 pt-2">
-        <button
-          type="button"
-          onClick={() => setTab("files")}
-          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
-            tab === "files"
-              ? "border-primary font-medium"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}
-        >
-          <FolderOpen className="size-4" />
-          文件
-        </button>
-        {preview && (
-          <button
-            type="button"
-            onClick={() => setTab("preview")}
-            className={`flex min-w-0 items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
-              tab === "preview"
-                ? "border-primary font-medium"
-                : "text-muted-foreground border-transparent hover:text-foreground"
-            }`}
-          >
-            <FileIcon className="size-4 shrink-0" />
-            <span className="max-w-32 truncate">{preview.path.replace(/^.*[\\/]/, "")}</span>
-            <X
-              className="text-muted-foreground size-3 shrink-0 hover:text-foreground"
-              onClick={(e) => {
-                e.stopPropagation();
-                setPreview(null);
-                setTab("files");
-              }}
-            />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setTab("todo")}
-          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
-            tab === "todo"
-              ? "border-primary font-medium"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}
-        >
-          <ListTodo className="size-4" />
-          待办
-          {todoCount > 0 ? (
-            <span className="bg-primary/10 text-primary rounded-full px-1.5 text-[10px] leading-4">
-              {todoCount}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("plan")}
-          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
-            tab === "plan"
-              ? "border-primary font-medium"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}
-        >
-          <ClipboardCheck className="size-4" />
-          计划
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("git")}
-          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
-            tab === "git"
-              ? "border-primary font-medium"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}
-        >
-          <GitBranch className="size-4" />
-          Git
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("browser")}
-          className={`flex items-center gap-1.5 rounded-t-md border-b-2 px-3 py-1.5 text-sm ${
-            tab === "browser"
-              ? "border-primary font-medium"
-              : "text-muted-foreground border-transparent hover:text-foreground"
-          }`}
-        >
-          <Globe className="size-4" />
-          浏览器
-        </button>
-        <div className="flex-1" />
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground mb-1 rounded p-1"
-          title="关闭面板"
-          onClick={onClose}
-        >
-          <X className="size-4" />
-        </button>
-      </div>
-
       {tab === "browser" ? (
         <BrowserPanel embedded />
       ) : tab === "todo" ? (
@@ -643,6 +575,39 @@ export function WorkspaceFilePanel({
           </div>
 
           <div className="flex-1 overflow-y-auto py-1">
+            {/* 钉住的预览（Kun pinnedFilePreviewTargets） */}
+            {pinned.length > 0 && !filter.trim() && (
+              <div className="px-2 pb-1">
+                <div className="text-muted-foreground px-1 py-1 text-[11px] font-medium">
+                  已钉住
+                </div>
+                {pinned.map((p) => (
+                  <div key={p} className="group/pin flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-accent/60">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left"
+                      onClick={() => void openFile(p)}
+                      title={p}
+                    >
+                      <Pin className="text-muted-foreground size-3 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-[12px]">
+                        {relFromRoot(root, p)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground shrink-0 rounded p-0.5"
+                      title="取消钉住"
+                      onClick={() => togglePin(p)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+                <div className="bg-border mx-1 my-1.5 h-px" />
+              </div>
+            )}
+
             {/* Recent modified files */}
             {recent.length > 0 && !filter.trim() && (
               <div className="mb-1 px-2">
@@ -721,6 +686,43 @@ export function WorkspaceFilePanel({
       ) : (
         /* 预览 tab */
         <div className="flex flex-1 flex-col overflow-hidden">
+          {/* 预览头部：文件名 + 关闭（对齐 Kun WorkspaceFilePreviewChrome） */}
+          <div className="flex items-center gap-1.5 border-b px-3 py-1.5">
+            <FileIcon className="text-muted-foreground size-3.5 shrink-0" />
+            <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+              {preview?.path ? preview.path.replace(/^.*[\\/]/, "") : "预览"}
+            </span>
+            {preview ? (
+              <button
+                type="button"
+                className={`rounded p-0.5 ${pinned.includes(preview.path) ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}
+                title={pinned.includes(preview.path) ? "取消钉住" : "钉住此预览"}
+                onClick={() => togglePin(preview.path)}
+              >
+                <Pin className="size-3.5" />
+              </button>
+            ) : null}
+            {editing ? (
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground rounded px-1 py-0.5"
+                onClick={() => void (preview?.kind === "xlsx" ? saveSheetEdit() : saveTextEdit())}
+              >
+                保存
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground rounded p-0.5"
+              title="关闭预览"
+              onClick={() => {
+                setPreview(null);
+                onTabChange("files");
+              }}
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
           {previewLoading ? (
             <div className="flex flex-1 items-center justify-center">
               <Loader2 className="text-muted-foreground size-4 animate-spin" />

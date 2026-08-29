@@ -139,6 +139,24 @@ export const desktopApi = {
         return notify("approval/respond", { requestId, approved, reason, remember });
     },
 
+    // ── B1 底部终端：pty 会话（cwd=工作区；输出经 terminal.output 通知流出） ──
+
+    terminalCreate(cwd: string, cols: number, rows: number): Promise<{ id: string; shell: string; cwd: string }> {
+        return rpc("terminal.create", { cwd, cols, rows });
+    },
+
+    terminalInput(id: string, data: string): Promise<void> {
+        return notify("terminal.input", { id, data });
+    },
+
+    terminalResize(id: string, cols: number, rows: number): Promise<void> {
+        return notify("terminal.resize", { id, cols, rows });
+    },
+
+    terminalDispose(id: string): Promise<void> {
+        return notify("terminal.dispose", { id });
+    },
+
     /** 列目录（懒加载文件树用） */
     fsList(dir: string): Promise<{ entries: Array<{ name: string; type: "file" | "dir"; size?: number }> }> {
         return rpc("fs.list", { dir });
@@ -184,6 +202,11 @@ export const desktopApi = {
         return rpc("workspace.setActive", { dir });
     },
 
+    /** C1 时间戳会话目录（Kun conversation:create-workspace；返回新目录路径） */
+    workspaceCreateConversationDir(): Promise<{ dir: string }> {
+        return rpc("workspace.createConversationDir");
+    },
+
     /** 监听工作区变更（native 失败 sidecar 自动降级轮询） */
     fsWatch(root: string): Promise<{ watching: boolean }> {
         return rpc("fs.watch", { root });
@@ -223,6 +246,14 @@ export const desktopApi = {
         colCount: number;
     }> {
         return rpc("office.readXlsx", { path });
+    },
+
+    /** 导出 docx（模板化生成，Work 模式 composer「生成文档」用） */
+    officeExportDocx(
+        path: string,
+        markdown: string,
+    ): Promise<{ summary: string; bytesWritten: number }> {
+        return rpc("office.exportDocx", { path, markdown });
     },
 
     /** T2.3 表格编辑回写：二维数组 → xlsx（覆盖原路径） */

@@ -24,6 +24,8 @@ import { MessageItem } from "./components/message/message-item";
 import { ModelSelector } from "./components/model-selector";
 import { useDesktop } from "@/components/desktop/desktop-provider";
 import { WorkspacePicker } from "@/components/desktop/workspace-picker";
+import { DatasetPicker } from "./components/dataset-picker";
+import { GitBranchPicker } from "./components/input/git-branch-picker";
 import { getLocalThread } from "@/services/desktop/thread-store";
 import { useAssistantContext } from "./context";
 
@@ -60,15 +62,18 @@ const ChatHeader = memo(function ChatHeader({
 
   return (
     <header className="bg-background relative flex flex-row-reverse items-center justify-between px-4 py-2 md:flex-row">
-      <div className="flex shrink-0 items-center gap-2">
-        <ModelSelector
-          models={models}
-          onModelChange={onSelectModel}
-          onOpenChange={setModelSelectorOpen}
-          open={modelSelectorOpen}
-          selectedModelId={selectedModelId}
-        />
-      </div>
+      {/* 模型选择器已移入 composer（Kun 布局）；Web 端仍留 header */}
+      {!desktop && (
+        <div className="flex shrink-0 items-center gap-2">
+          <ModelSelector
+            models={models}
+            onModelChange={onSelectModel}
+            onOpenChange={setModelSelectorOpen}
+            open={modelSelectorOpen}
+            selectedModelId={selectedModelId}
+          />
+        </div>
+      )}
 
       {displayTitle && (
         <div className="flex items-center gap-2">
@@ -257,8 +262,11 @@ const InputArea = memo(function InputArea({
           <Suggestions suggestions={suggestions} onSuggestionClick={handleSuggestionClick} />
         )}
         {desktop && (
-          <div className="px-3 pt-2">
+          <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2">
+            {/* 上下文行：工作区 ▸ 知识库 ▸ Git 分支（对齐 Kun FloatingComposerSurfaceView） */}
             <WorkspacePicker />
+            <DatasetPicker />
+            <GitBranchPicker />
           </div>
         )}
         <PromptInput
@@ -270,6 +278,11 @@ const InputArea = memo(function InputArea({
           globalDrop
           multiple
         />
+        {desktop && (
+          <div className="text-muted-foreground px-3 pt-1 pb-0.5 text-center text-[10px]">
+            Enter 发送 · Shift+Enter 换行 · ↑↓ 回溯输入历史
+          </div>
+        )}
       </div>
       <div className="text-muted-foreground bg-background py-1.5 text-center text-xs">
         <span>{footerText || "内容由 AI 生成，请仔细甄别"}</span>

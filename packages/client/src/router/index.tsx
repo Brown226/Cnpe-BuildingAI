@@ -29,6 +29,7 @@ import AlipayReturnPage from "../pages/payment/alipay-return";
 import { AutomationsPage } from "../pages/automations";
 import { DesktopProjectsSection } from "@/components/desktop/sidebar-projects-section";
 import { ModeTabs } from "@/components/desktop/mode-tabs";
+import { SidebarToolsSection } from "@/components/desktop/sidebar-tools-section";
 import { DesktopRightPanel } from "@/components/desktop/desktop-right-panel";
 import { SplitPill } from "@/components/desktop/split-pill";
 import { CommandPalette } from "@/components/desktop/command-palette";
@@ -100,13 +101,16 @@ export const router = createBrowserRouter([
       {
         element: (
           <DefaultLayout
-            extraSidebarContent={<DesktopProjectsSection />}
-            headerContent={
-              <div className="flex w-full items-center justify-between">
+            extraSidebarContent={
+              <>
+                {/* ④ 模式下拉（对齐 Kun WorkspaceModeTabs 侧栏顶部位置） */}
                 <ModeTabs />
-                <SplitPill />
-              </div>
+                {/* ⑤ 工具入口行（对齐 Kun New Agent/插件/扩展/日程 CommandRow 系列） */}
+                <SidebarToolsSection />
+                <DesktopProjectsSection />
+              </>
             }
+            headerContent={<SplitPill />}
             rightPanelContent={<DesktopRightPanel />}
           />
         ),

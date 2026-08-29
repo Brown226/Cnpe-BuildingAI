@@ -7,4 +7,6 @@ export interface WorkspaceEntry {
     /** 绝对路径（身份本体） */
     path: string;
     addedAt: number;
+    /** C1 会话目录（Kun SidebarConversationsSection）：区别于项目工作区，侧栏归「对话」组 */
+    kind?: "project" | "conversation";
 }

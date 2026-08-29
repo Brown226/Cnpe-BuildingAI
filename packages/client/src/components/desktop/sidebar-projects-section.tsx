@@ -89,6 +89,10 @@ export function DesktopProjectsSection() {
   } = useDesktop();
   /** T4.5 策略：不允许多工作区时隐藏"添加工作区"入口 */
   const allowAddWorkspace = policyKeys?.allowMultipleWorkspaces !== false;
+  // 对话区分组（Kun SidebarConversationsSection 语义）：C1 时间戳会话目录排「项目」之后
+  const projectWorkspaces = workspaces.filter((w) => w.kind !== "conversation");
+  const conversationWorkspaces = workspaces.filter((w) => w.kind === "conversation");
+  const orderedWorkspaces = [...projectWorkspaces, ...conversationWorkspaces];
   const navigate = useNavigate();
   const [, setVersion] = useState(0);
   const [menu, setMenu] = useState<MenuState>(null);
@@ -243,13 +247,21 @@ export function DesktopProjectsSection() {
               点右上 ➕ 添加文件夹开始。
             </div>
           )}
-          {workspaces.map((w) => {
+          {orderedWorkspaces.map((w, wsIndex) => {
+            const isFirstConversation =
+              w.kind === "conversation" &&
+              !orderedWorkspaces.slice(0, wsIndex).some((x) => x.kind === "conversation");
             const active = selectedWorkspace?.id === w.id;
             const expanded = expandedIds.includes(w.id) || active;
             const folders = listFolders(w.id);
             const rootThreads = listThreadsByWorkspace(w.id, activeMode).filter((t) => !t.folderId);
             return (
               <SidebarMenuItem key={w.id}>
+                {isFirstConversation && (
+                  <div className="text-sidebar-foreground/70 px-3 pt-2 pb-1 text-[11px] font-semibold">
+                    对话
+                  </div>
+                )}
                 <SidebarMenuButton
                   tooltip={`${w.name} · ${w.path}`}
                   isActive={active}

@@ -11,10 +11,16 @@ import { useParams } from "react-router-dom";
 import type { Suggestion } from "@/components/ask-assistant-ui";
 import { AssistantProvider, Chat, useAssistant } from "@/components/ask-assistant-ui";
 import { getLocalThread } from "@/services/desktop/thread-store";
+import { TerminalPanel } from "@/components/desktop/terminal-panel";
 import {
-  getSplitSessionId,
-  SPLIT_CHANGED_EVENT,
+    getSplitSessionId,
+    SPLIT_CHANGED_EVENT,
 } from "@/services/desktop/split-store";
+import {
+    getTerminalOpen,
+    TERMINAL_CHANGED_EVENT,
+} from "@/services/desktop/terminal-store";
+import { isDesktop } from "@/services/desktop/desktop-api";
 
 const DEFAULT_SUGGESTIONS: Suggestion[] = [
   { id: "1", text: "如何开始使用 React Hooks？" },
@@ -41,6 +47,15 @@ const IndexPage = () => {
     const handler = () => setSplitId(getSplitSessionId());
     window.addEventListener(SPLIT_CHANGED_EVENT, handler);
     return () => window.removeEventListener(SPLIT_CHANGED_EVENT, handler);
+  }, []);
+
+  // B1 底部终端：仅桌面端渲染，开合状态变化即重渲染
+  const [terminalOpen, setTerminalOpen] = useState<boolean>(() => isDesktop() && getTerminalOpen());
+  useEffect(() => {
+    if (!isDesktop()) return;
+    const handler = () => setTerminalOpen(getTerminalOpen());
+    window.addEventListener(TERMINAL_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(TERMINAL_CHANGED_EVENT, handler);
   }, []);
 
   useDocumentHead({
@@ -95,6 +110,15 @@ const IndexPage = () => {
             />
           </AssistantProvider>
         </div>
+      </div>
+    );
+  }
+
+  if (terminalOpen) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1">{mainChat}</div>
+        <TerminalPanel />
       </div>
     );
   }

@@ -44,6 +44,8 @@ interface DesktopContextValue {
     selectedWorkspace: WorkspaceEntry | null;
     /** 系统目录框选择并添加工作区 */
     addWorkspaceByPicker: () => Promise<void>;
+    /** 按路径添加工作区（C1 会话目录等程序化链路） */
+    addWorkspaceByPath: (path: string, kind?: WorkspaceEntry["kind"]) => Promise<void>;
     /** 切换工作区（置顶 + 引擎激活） */
     selectWorkspace: (entry: WorkspaceEntry) => Promise<void>;
     /** 移除工作区（连带 sidecar 白名单） */
@@ -70,6 +72,7 @@ const DesktopContext = createContext<DesktopContextValue>({
     workspaces: [],
     selectedWorkspace: null,
     addWorkspaceByPicker: async () => undefined,
+    addWorkspaceByPath: async () => undefined,
     selectWorkspace: async () => undefined,
     removeWorkspace: async () => undefined,
     activeMode: "code",
@@ -226,8 +229,8 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
     );
 
     const addWorkspaceByPath = useCallback(
-        async (path: string) => {
-            const entry = await makeWorkspaceEntry(path);
+        async (path: string, kind?: WorkspaceEntry["kind"]) => {
+            const entry = await makeWorkspaceEntry(path, kind);
             const persisted = loadWorkspaces();
             const { items, deduped } = upsertEntry(persisted.items, entry);
             const nextSelectedId = entry.id;
@@ -442,6 +445,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             workspaces,
             selectedWorkspace,
             addWorkspaceByPicker,
+            addWorkspaceByPath,
             selectWorkspace,
             removeWorkspace,
             activeMode,
@@ -460,6 +464,7 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
             workspaces,
             selectedWorkspace,
             addWorkspaceByPicker,
+            addWorkspaceByPath,
             selectWorkspace,
             removeWorkspace,
             activeMode,
