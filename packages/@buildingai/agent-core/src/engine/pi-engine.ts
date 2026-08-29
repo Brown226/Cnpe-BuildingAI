@@ -63,6 +63,8 @@ export class PiEngine implements AgentEngine {
     private model: Model<Api> | null = null;
     private tools: PlatformTool[] = [];
     private sessions = new Map<string, LiveSession>();
+    /** 会话级模型覆盖（模型选择器生效：切模型=该会话重建，Kun 同款"换模型开新上下文"语义） */
+    private modelOverrides = new Map<string, string>();
     private startConfig: EngineStartConfig | null = null;
     /** 每个会话的待推送事件队列（AsyncIterable 支持慢消费） */
     private queues = new Map<string, EngineEvent[]>();
@@ -385,6 +387,31 @@ export class PiEngine implements AgentEngine {
         void live.session.abort().catch(() => undefined);
     }
 
+    /**
+     * 切换会话模型（桌面模型选择器 → session.setModel）：
+     * 目标模型与当前不同时重建会话（换模型=开新上下文）；
+     * 相同或尚无会话时仅记录覆盖，下次 ensureSession 生效。
+     */
+    setModel(sessionId: string, modelId?: string): void {
+        if (!modelId) return;
+        const current =
+            this.modelOverrides.get(sessionId) ??
+            this.startConfig?.defaultModel?.modelId ??
+            process.env.DEV_MODEL_ID ??
+            "gpt-5.6-sol";
+        this.modelOverrides.set(sessionId, modelId);
+        if (modelId === current) return;
+        const existing = this.sessions.get(sessionId);
+        if (!existing) return;
+        try {
+            existing.unsub();
+            void existing.session.abort().catch(() => undefined);
+        } catch {
+            /* 忽略重开异常 */
+        }
+        this.sessions.delete(sessionId);
+    }
+
     async dispose(): Promise<void> {
         for (const [, live] of this.sessions) {
             try {
@@ -457,7 +484,10 @@ export class PiEngine implements AgentEngine {
 
         const config = this.startConfig;
         const modelId =
-            config.defaultModel?.modelId ?? process.env.DEV_MODEL_ID ?? "gpt-5.6-sol";
+            this.modelOverrides.get(sessionId) ??
+            config.defaultModel?.modelId ??
+            process.env.DEV_MODEL_ID ??
+            "gpt-5.6-sol";
         // cwd 取会话主工作区：无白名单时退化为临时目录且工具仍然受策略管控
         const workspaceRoot = process.env.AGENT_CORE_WORKSPACE ?? mkdtempSync(join(tmpdir(), `session-${sessionId.slice(0, 8)}-`));
         const cwd = workspaceRoot!;

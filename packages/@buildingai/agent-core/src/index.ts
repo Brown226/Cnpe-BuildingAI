@@ -371,6 +371,7 @@ rpc.register("initialize", (params) => {
                 "session.create",
                 "session.send",
                 "session.abort",
+                "session.setModel",
                 "session.list",
                 "session.get",
                 "fs.list",
@@ -885,6 +886,7 @@ rpc.register("session.send", (params) => {
         mode?: string;
         agentRole?: string;
         datasetIds?: unknown;
+        graph?: boolean;
     };
     if (!p?.sessionId || !p.text)
         throw new RpcError(RpcErrorCodes.InvalidParams, "session.send 需要 sessionId 与 text");
@@ -892,7 +894,7 @@ rpc.register("session.send", (params) => {
     if (Array.isArray(p.datasetIds)) {
         setDatasetSelection(p.sessionId, p.datasetIds.map((id) => String(id)));
     }
-    void pumpSessionEvents(p.sessionId, p.text, p.mode, p.agentRole).catch((err) => {
+    void pumpSessionEvents(p.sessionId, p.text, p.mode, p.agentRole, Boolean(p.graph)).catch((err) => {
         logStderr(`session.send 泵异常: ${String(err)}`);
         rpc.notify("engine/event", {
             sessionId: p.sessionId,
@@ -907,13 +909,26 @@ async function pumpSessionEvents(
     text: string,
     mode?: string,
     agentRole?: string,
+    graph = false,
 ): Promise<void> {
+    // Graph 编排（Kun graph orchestration 语义的提示词实现）：计划 → 委派子代理 → 监督审查 → 汇总
+    const finalText = graph
+        ? [
+              "【Graph 编排模式】请按以下流程执行本任务：",
+              "1. 规划：先输出任务清单（编号列出要做的子任务）。",
+              "2. 委派：每个子任务调用 Agent 子代理工具委派执行（一次只派一个，等待结果）。",
+              "3. 监督：子代理完成后检查结果，不合格的说明原因并重新委派（至多一次）。",
+              "4. 汇总：全部完成后给出总览与交付物清单。",
+              "",
+              `任务：${text}`,
+          ].join("\n")
+        : text;
     // T1.3：user 消息先落盘；事件流累计 assistant 文本与工具摘要，done/error 时落盘；
     // 每个引擎事件同时追加到 events.jsonl（Kun 完整事件流语义，诊断/回放/审计用）
-    sessions?.appendMessage(sessionId, { role: "user", text, ts: Date.now() });
+    sessions?.appendMessage(sessionId, { role: "user", text: finalText, ts: Date.now() });
     let assistantText = "";
     let toolSummary = "";
-    for await (const event of engine.sendMessage(sessionId, { text, mode: normalizeMode(mode), agentRole })) {
+    for await (const event of engine.sendMessage(sessionId, { text: finalText, mode: normalizeMode(mode), agentRole })) {
         sessions?.appendEvent(sessionId, event);
         if (event.type === "text_delta") assistantText += event.delta;
         else if (event.type === "tool_call_end")
@@ -949,6 +964,14 @@ rpc.register("session.abort", (params) => {
     const id = str(params, "sessionId");
     engine.abort(id);
     return { aborted: true };
+});
+
+/** 模型选择器生效：切换会话模型（重建会话 = 新上下文，幂等） */
+rpc.register("session.setModel", (params) => {
+    const id = str(params, "sessionId");
+    const modelId = (params as { modelId?: string })?.modelId;
+    engine.setModel(id, modelId);
+    return { set: Boolean(modelId) };
 });
 
 // ── 工具函数 ───────────────────────────────────────────────────────────
