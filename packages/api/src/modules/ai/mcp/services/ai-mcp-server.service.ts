@@ -7,7 +7,7 @@ import { AiUserMcpServer } from "@buildingai/db/entities";
 import { Like, Not, Repository } from "@buildingai/db/typeorm";
 import { DictService } from "@buildingai/dict";
 import { HttpErrorFactory } from "@buildingai/errors";
-import { buildWhere } from "@buildingai/utils";
+import { buildWhere, decryptRecord, encryptRecord } from "@buildingai/utils";
 import { isEnabled } from "@buildingai/utils";
 import { Injectable } from "@nestjs/common";
 
@@ -55,6 +55,8 @@ export class AiMcpServerService extends BaseService<AiMcpServer> {
         const { isQuickMenu, ...rest } = createDto;
         const result = await this.create({
             ...rest,
+            // T4.9 凭据加密：headers 整体 AES-GCM 封装入库
+            headers: encryptRecord(rest.headers),
             type: McpServerType.SYSTEM,
             creatorId: createDto.userId,
         });
@@ -95,7 +97,10 @@ export class AiMcpServerService extends BaseService<AiMcpServer> {
         }
 
         const { isQuickMenu, ...rest } = updateDto;
-        const result = await this.updateById(id, rest);
+        const result = await this.updateById(id, {
+            ...rest,
+            headers: rest.headers === undefined ? undefined : encryptRecord(rest.headers),
+        });
         if (isQuickMenu !== undefined && isQuickMenu) {
             await this.dictService.set(AI_MCP_IS_QUICK_MENU, id);
         }
@@ -273,7 +278,7 @@ export class AiMcpServerService extends BaseService<AiMcpServer> {
                 transport: {
                     type: mcpServer.communicationType === McpCommunicationType.SSE ? "sse" : "http",
                     url: mcpServer.url,
-                    ...(mcpServer.headers && { headers: mcpServer.headers }),
+                    ...(mcpServer.headers && { headers: decryptRecord(mcpServer.headers) }),
                 },
                 name: mcpServer.name,
             });

@@ -5,6 +5,7 @@ import { AiMcpServer, McpCommunicationType, McpServerType } from "@buildingai/db
 import { AiUserMcpServer } from "@buildingai/db/entities";
 import { Not, Repository } from "@buildingai/db/typeorm";
 import { HttpErrorFactory } from "@buildingai/errors";
+import { decryptRecord, encryptRecord } from "@buildingai/utils";
 import {
     CreateWebAiMcpServerDto,
     ImportWebAiMcpServerDto,
@@ -52,6 +53,8 @@ export class WebAiMcpServerWebService extends BaseService<AiMcpServer> {
 
         const dto = {
             ...createDto,
+            // T4.9 凭据加密：headers 整体 AES-GCM 封装入库
+            headers: encryptRecord(createDto.headers),
             creatorId,
             type: McpServerType.USER,
         };
@@ -98,7 +101,10 @@ export class WebAiMcpServerWebService extends BaseService<AiMcpServer> {
         }
 
         // 更新MCP服务
-        return await this.updateById(mcpServer.id, updateDto);
+        return await this.updateById(mcpServer.id, {
+            ...updateDto,
+            headers: updateDto.headers === undefined ? undefined : encryptRecord(updateDto.headers),
+        });
     }
 
     /**
@@ -183,7 +189,7 @@ export class WebAiMcpServerWebService extends BaseService<AiMcpServer> {
                         type: McpServerType.USER,
                         url,
                         creatorId,
-                        headers: config.headers || {},
+                        headers: encryptRecord(config.headers) || {},
                         description: `MCP server imported from JSON: ${name}`,
                         icon: "",
                         sortOrder: 0,
@@ -254,7 +260,7 @@ export class WebAiMcpServerWebService extends BaseService<AiMcpServer> {
                 transport: {
                     type: mcpServer.communicationType === McpCommunicationType.SSE ? "sse" : "http",
                     url: mcpServer.url,
-                    ...(mcpServer.headers && { headers: mcpServer.headers }),
+                    ...(mcpServer.headers && { headers: decryptRecord(mcpServer.headers) }),
                 },
                 name: mcpServer.name,
             });

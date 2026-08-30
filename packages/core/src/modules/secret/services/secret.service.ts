@@ -6,7 +6,7 @@ import { Secret } from "@buildingai/db/entities";
 import { Like, Raw, Repository } from "@buildingai/db/typeorm";
 import { PaginationDto } from "@buildingai/dto/pagination.dto";
 import { HttpErrorFactory } from "@buildingai/errors";
-import { buildWhere, decryptValue } from "@buildingai/utils";
+import { buildWhere, decryptValue, encryptValue as encryptValueUtil } from "@buildingai/utils";
 import { Inject, Injectable, Optional } from "@nestjs/common";
 
 import {
@@ -546,13 +546,12 @@ export class SecretService extends BaseService<Secret> {
     }
 
     /**
-     * Encrypt field value (simplified implementation)
+     * Encrypt field value（T4.9：AES-256-GCM，见 @buildingai/utils/security）
      * @param value Original value
      * @returns Encrypted value
      */
     private encryptValue(value: string): string {
-        // Should use real encryption algorithm here, using Base64 encoding as example for now
-        return Buffer.from(value).toString("base64");
+        return encryptValueUtil(value);
     }
 
     /**

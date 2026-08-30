@@ -36,7 +36,7 @@ import { UserDictService } from "@buildingai/dict";
 import { HttpErrorFactory } from "@buildingai/errors";
 import type { ChatMessageUsage } from "@buildingai/types";
 import type { ChatUIMessage } from "@buildingai/types";
-import { getProviderSecret } from "@buildingai/utils";
+import { decryptRecord, getProviderSecret } from "@buildingai/utils";
 import { UserService } from "@modules/user/services/user.service";
 import { Injectable, Logger } from "@nestjs/common";
 import type { LanguageModel, Tool } from "ai";
@@ -526,7 +526,7 @@ export class ChatCompletionService {
                     description: server.description ?? undefined,
                     url: server.url,
                     communicationType: server.communicationType,
-                    headers: server.headers ?? undefined,
+                    headers: decryptRecord(server.headers) ?? undefined,
                 }));
 
             if (!serverConfigs.length) {
