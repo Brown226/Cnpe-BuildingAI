@@ -141,6 +141,22 @@ export class Datasets extends BaseEntity {
     memberJoinApprovalRequired: boolean;
 
     /**
+     * T4.3 部门绑定（隔离型三级）：department-部门知识库（scopeId=deptId），
+     * org-组织共享（scopeId=NULL）；NULL=未绑定（C 端成员制语义不变，双轨并存）。
+     */
+    @Column({
+        type: "varchar",
+        length: 16,
+        nullable: true,
+        comment: "scope 级别：NULL-未绑定，department-部门知识库，org-组织共享",
+    })
+    scopeType?: string | null;
+
+    /** scope 归属 ID：department→deptId，org→NULL，未绑定→NULL */
+    @Column({ type: "uuid", nullable: true, comment: "scope 归属ID" })
+    scopeId?: string | null;
+
+    /**
      * 知识库下的文档列表
      */
     @OneToMany(() => DatasetsDocument, (document) => document.dataset)

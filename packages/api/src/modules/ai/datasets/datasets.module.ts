@@ -20,6 +20,8 @@ import { UserModule } from "@modules/user/user.module";
 import { forwardRef, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 
+import { ScopeModule } from "@common/modules/scope/scope.module";
+
 import { DatasetsConsoleController } from "./controllers/console/datasets.controller";
 import { DatasetsDocumentsConsoleController } from "./controllers/console/datasets-documents.controller";
 import { DatasetsMemberConsoleController } from "./controllers/console/datasets-member.controller";
@@ -69,6 +71,7 @@ import { VectorizationTriggerService } from "./services/vectorization-trigger.se
         QueueModule,
         UploadModule,
         AiModelModule,
+        ScopeModule,
         forwardRef(() => UserModule),
     ],
     controllers: [

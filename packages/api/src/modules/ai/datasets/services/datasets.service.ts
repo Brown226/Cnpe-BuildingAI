@@ -21,6 +21,7 @@ import { HttpErrorFactory } from "@buildingai/errors";
 import { DatasetsConfigService } from "@modules/config/services/datasets-config.service";
 import { Injectable, Logger } from "@nestjs/common";
 
+import { ScopeResolver } from "@common/modules/scope/scope-resolver.service";
 import { CreateEmptyDatasetDto } from "../dto/create-empty-dataset.dto";
 import type { ListSquareDatasetsDto } from "../dto/list-square-datasets.dto";
 import type { SetDatasetVectorConfigDto } from "../dto/set-dataset-vector-config.dto";
@@ -57,6 +58,7 @@ export class DatasetsService extends BaseService<Datasets> {
         private readonly datasetMemberService: DatasetMemberService,
         private readonly datasetsConfigService: DatasetsConfigService,
         private readonly vectorizationTrigger: VectorizationTriggerService,
+        private readonly scopeResolver: ScopeResolver,
     ) {
         super(datasetsRepository);
     }
@@ -361,19 +363,45 @@ export class DatasetsService extends BaseService<Datasets> {
         });
     }
 
+    /** 团队知识库（T4.3 隔离型三级）：C 端成员制 ∪ 组织共享 ∪ 本部门绑定（双轨并存） */
     async listTeam(userId: string, paginationDto: PaginationDto) {
+        const scope = await this.scopeResolver.resolve(userId);
         const qb = this.datasetsRepository
             .createQueryBuilder("d")
-            .innerJoin(
+            .leftJoin(
                 "dataset_members",
                 "m",
                 "m.dataset_id = d.id AND m.user_id = :userId AND m.is_active = true",
                 { userId },
             )
             .where("d.createdBy != :userId", { userId })
+            .andWhere(
+                scope.departmentIds.length > 0
+                    ? "(m.id IS NOT NULL OR d.scopeType = 'org' OR (d.scopeType = 'department' AND d.scopeId IN (:...departmentIds)))"
+                    : "(m.id IS NOT NULL OR d.scopeType = 'org')",
+            )
             .orderBy("d.updatedAt", "DESC");
+        if (scope.departmentIds.length > 0) {
+            qb.setParameter("departmentIds", scope.departmentIds);
+        }
 
         return this.paginateQueryBuilder(qb, paginationDto);
+    }
+
+    /** 管理端绑定知识库 scope（T4.3）：department/org/none（解绑恢复 C 端语义） */
+    async bindDatasetScope(
+        datasetId: string,
+        scopeType: "department" | "org" | "none",
+        departmentId?: string,
+    ): Promise<Datasets> {
+        const dataset = await this.datasetsRepository.findOne({ where: { id: datasetId } });
+        if (!dataset) throw HttpErrorFactory.notFound("知识库不存在");
+        if (scopeType === "department" && !departmentId) {
+            throw HttpErrorFactory.badRequest("scopeType=department 时必须提供 departmentId");
+        }
+        dataset.scopeType = scopeType === "none" ? null : scopeType;
+        dataset.scopeId = scopeType === "department" ? departmentId : null;
+        return this.datasetsRepository.save(dataset);
     }
 
     async listSquare(dto: ListSquareDatasetsDto) {

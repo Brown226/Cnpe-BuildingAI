@@ -13,6 +13,7 @@ import { Body, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 
 import { ListConsoleDatasetsDto } from "../../dto/list-console-datasets.dto";
 import { SetDatasetVectorConfigDto } from "../../dto/set-dataset-vector-config.dto";
+import { BindDatasetScopeDto } from "../../dto/bind-dataset-scope.dto";
 import { RejectSquarePublishDto } from "../../dto/square-publish.dto";
 import { DatasetsService } from "../../services/datasets.service";
 
@@ -86,6 +87,8 @@ export class DatasetsConsoleController {
                 publishedToSquare: d.publishedToSquare ?? false,
                 squarePublishStatus: d.squarePublishStatus ?? SquarePublishStatus.NONE,
                 squareRejectReason: d.squareRejectReason ?? null,
+                scopeType: d.scopeType ?? null,
+                scopeId: d.scopeId ?? null,
                 sort: 0,
                 updatedAt: d.updatedAt,
                 tags: (d.tags ?? []).map((t) => ({ id: t.id, name: t.name })),
@@ -127,6 +130,16 @@ export class DatasetsConsoleController {
     })
     async setVectorConfig(@Param("id") datasetId: string, @Body() dto: SetDatasetVectorConfigDto) {
         return this.datasetsService.updateVectorConfig(datasetId, dto);
+    }
+
+    @Patch(":id/scope")
+    @Permissions({
+        code: "bind-scope",
+        name: "绑定部门知识库",
+        description: "T4.3：将知识库绑定到部门/组织共享，或解绑恢复成员制语义",
+    })
+    async bindScope(@Param("id") datasetId: string, @Body() dto: BindDatasetScopeDto) {
+        return this.datasetsService.bindDatasetScope(datasetId, dto.scopeType, dto.departmentId);
     }
 
     @Post(":id/approve-square")

@@ -9,10 +9,27 @@ import { User } from "./user.entity";
  */
 @AppEntity({ name: "ai_user_memory", comment: "用户全局记忆" })
 @Index(["userId", "isActive", "createdAt"])
+@Index(["scopeType", "scopeId"])
 export class UserMemory extends BaseEntity {
     @Column({ type: "uuid", comment: "用户ID" })
     @Index()
     userId: string;
+
+    /**
+     * T4.3 scope 三级分区（隔离型：可见集 = 个人 ∪ 部门 ∪ 组织）
+     * personal 记忆由对话抽取/用户自写产生；department/org 记忆仅管理端可写。
+     */
+    @Column({
+        type: "varchar",
+        length: 16,
+        default: "personal",
+        comment: "scope 级别：personal-个人，department-部门共享，org-组织共享",
+    })
+    scopeType: string;
+
+    /** scope 归属 ID：personal→userId，department→deptId，org→NULL */
+    @Column({ type: "uuid", nullable: true, comment: "scope 归属ID" })
+    scopeId?: string | null;
 
     @Column({ type: "text", comment: "记忆内容" })
     content: string;
