@@ -70,3 +70,14 @@ export function upsertEntry(items: WorkspaceEntry[], entry: WorkspaceEntry): { i
     if (next.length > WORKSPACE_CAP) next.length = WORKSPACE_CAP;
     return { items: next, deduped };
 }
+
+/** 工作区拖拽排序（对齐 thread reorderThreads）：按传入 id 顺序重排并持久化 */
+export function reorderWorkspaces(orderedIds: string[]): void {
+    const persisted = loadWorkspaces();
+    const byId = new Map(persisted.items.map((it) => [it.id, it]));
+    const ordered = orderedIds.map((id) => byId.get(id)).filter((it): it is WorkspaceEntry => Boolean(it));
+    // 兜底：漏掉的条目（并发新增等）按原顺序补尾
+    const missing = persisted.items.filter((it) => !orderedIds.includes(it.id));
+    const items = [...ordered, ...missing];
+    saveWorkspaces({ items, selectedId: persisted.selectedId });
+}

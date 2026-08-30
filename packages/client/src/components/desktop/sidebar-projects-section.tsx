@@ -59,6 +59,7 @@ import {
 } from "@/services/desktop/thread-store";
 import { setSplitSessionId } from "@/services/desktop/split-store";
 import type { WorkspaceEntry } from "@/services/desktop/workspace-types";
+import { reorderWorkspaces } from "@/services/desktop/workspace-store";
 
 type MenuState = {
   x: number;
@@ -98,6 +99,7 @@ export function DesktopProjectsSection() {
   const [menu, setMenu] = useState<MenuState>(null);
   const [expandedIds, setExpandedIds] = useState<string[]>(() => loadExpanded());
   const [dragThread, setDragThread] = useState<string | null>(null);
+  const [dragWorkspace, setDragWorkspace] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   const bump = () => setVersion((v) => v + 1);
@@ -265,6 +267,30 @@ export function DesktopProjectsSection() {
                 <SidebarMenuButton
                   tooltip={`${w.name} · ${w.path}`}
                   isActive={active}
+                  draggable
+                  onDragStart={(e) => {
+                    // 仅工作区行自身可拖（会话行有自己的 draggable，不冒泡到此）
+                    if ((e.target as HTMLElement).closest("[data-thread-row]")) return;
+                    e.dataTransfer.effectAllowed = "move";
+                    setDragWorkspace(w.id);
+                  }}
+                  onDragOver={(e) => {
+                    if (dragWorkspace && dragWorkspace !== w.id) e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (!dragWorkspace || dragWorkspace === w.id) return setDragWorkspace(null);
+                    const ids = orderedWorkspaces.map((x) => x.id);
+                    const from = ids.indexOf(dragWorkspace);
+                    const to = ids.indexOf(w.id);
+                    if (from >= 0 && to >= 0) {
+                      ids.splice(from, 1);
+                      ids.splice(to, 0, dragWorkspace);
+                      reorderWorkspaces(ids);
+                      bump();
+                    }
+                    setDragWorkspace(null);
+                  }}
                   onClick={() => {
                     void selectWorkspace(w);
                     toggleExpand(w.id);
@@ -571,6 +597,7 @@ function ThreadRow({
 }) {
   return (
     <SidebarMenuSubItem
+      data-thread-row
       draggable
       onDragStart={() => onDragStart()}
       onDragOver={(e) => {
