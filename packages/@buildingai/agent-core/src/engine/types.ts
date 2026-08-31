@@ -73,6 +73,12 @@ export interface UserInput {
      * 对齐 Kun 的 composerAgent（选中智能体 → 影响下一条新对话）。
      */
     agentRole?: string;
+    /**
+     * #1 目标验收模式：true 时工作阶段按"带验收标准的目标"执行，
+     * 完成后进入最多 6 轮证据验收循环（goal_acceptance_* 事件）。
+     * 由 /goal 前缀解析或客户端直传。
+     */
+    goal?: boolean;
 }
 
 export type EngineEvent =
@@ -106,4 +112,10 @@ export type EngineEvent =
      */
     | { type: "summary_started" }
     | { type: "summary_done" }
+    /**
+     * #1 目标验收模式（/goal 触发）：验收轮开始/判定结果。
+     * result.passed=false 时 reason 携带失败原因（todo 未清/模型自报/轮次耗尽）。
+     */
+    | { type: "goal_acceptance_started"; round: number }
+    | { type: "goal_acceptance_result"; round: number; passed: boolean; reason: string }
     | { type: "done"; stopReason: "end_turn" | "aborted" | "max_steps" };

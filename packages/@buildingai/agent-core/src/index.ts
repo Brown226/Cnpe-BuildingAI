@@ -887,14 +887,24 @@ rpc.register("session.send", (params) => {
         agentRole?: string;
         datasetIds?: unknown;
         graph?: boolean;
+        goal?: boolean;
     };
     if (!p?.sessionId || !p.text)
         throw new RpcError(RpcErrorCodes.InvalidParams, "session.send 需要 sessionId 与 text");
+    // #1 目标验收模式：/goal 前缀解析（引擎侧兜底；客户端 composer 亦可直接置 goal 标志）
+    let sendText = p.text;
+    let goal = Boolean(p.goal);
+    if (!goal && (sendText.startsWith("/goal ") || sendText === "/goal")) {
+        goal = true;
+        sendText = sendText.replace(/^\/goal\s*/, "").trim();
+        if (!sendText)
+            throw new RpcError(RpcErrorCodes.InvalidParams, "/goal 需要目标描述");
+    }
     // ⑤ 知识库挂载：随每轮发送更新会话级挂载集合（对齐 Kun thread knowledgeBases）
     if (Array.isArray(p.datasetIds)) {
         setDatasetSelection(p.sessionId, p.datasetIds.map((id) => String(id)));
     }
-    void pumpSessionEvents(p.sessionId, p.text, p.mode, p.agentRole, Boolean(p.graph)).catch((err) => {
+    void pumpSessionEvents(p.sessionId, sendText, p.mode, p.agentRole, Boolean(p.graph), goal).catch((err) => {
         logStderr(`session.send 泵异常: ${String(err)}`);
         rpc.notify("engine/event", {
             sessionId: p.sessionId,
@@ -910,8 +920,10 @@ async function pumpSessionEvents(
     mode?: string,
     agentRole?: string,
     graph = false,
+    goal = false,
 ): Promise<void> {
     // Graph 编排（Kun graph orchestration 语义的提示词实现）：计划 → 委派子代理 → 监督审查 → 汇总
+    // （与 /goal 并存：goal 包装在引擎侧再叠一层，原始目标即编排后的任务文本）
     const finalText = graph
         ? [
               "【Graph 编排模式】请按以下流程执行本任务：",
@@ -928,7 +940,7 @@ async function pumpSessionEvents(
     sessions?.appendMessage(sessionId, { role: "user", text: finalText, ts: Date.now() });
     let assistantText = "";
     let toolSummary = "";
-    for await (const event of engine.sendMessage(sessionId, { text: finalText, mode: normalizeMode(mode), agentRole })) {
+    for await (const event of engine.sendMessage(sessionId, { text: finalText, mode: normalizeMode(mode), agentRole, goal })) {
         sessions?.appendEvent(sessionId, event);
         if (event.type === "text_delta") assistantText += event.delta;
         else if (event.type === "tool_call_end")

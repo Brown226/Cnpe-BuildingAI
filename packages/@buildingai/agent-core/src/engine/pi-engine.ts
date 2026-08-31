@@ -17,6 +17,13 @@ import type { PlatformTool } from "../tools/types.js";
 import { toPiTools } from "./platform-tool-adapter.js";
 import { fingerprintPrefix, PrefixFingerprintTracker } from "./prefix-fingerprint.js";
 import { ErrorCircuitBreaker } from "./error-breaker.js";
+import {
+    buildAcceptancePrompt,
+    buildGoalWorkInstruction,
+    evaluateAcceptanceRound,
+    GOAL_MAX_ACCEPTANCE_ROUNDS,
+    parseTodoIncomplete,
+} from "./goal-acceptance.js";
 
 /** 会话运行时：pi session + 事件泵 + 挂起 resolve */
 interface LiveSession {
@@ -164,6 +171,7 @@ export class PiEngine implements AgentEngine {
     private async beginTurn(sessionId: string, input: UserInput): Promise<void> {
         try {
             const mode = input.mode ?? "code";
+            const isGoal = Boolean(input.goal);
             this.verifyPrefix(mode);
             const live = await this.ensureSession(sessionId, mode, input.agentRole);
             const queue = this.getQueue(sessionId);
@@ -179,6 +187,10 @@ export class PiEngine implements AgentEngine {
             >();
             /** Y3：本回合是否发生过工具执行（总结轮仅在真实工作发生后追加） */
             let sawToolExecution = false;
+            /** #1 验收：当前轮累计文本（text_delta 累计，每轮重置） */
+            let roundText = "";
+            /** #1 验收：todo 扩展最新快照的未完成项数（null=尚无快照） */
+            let incompleteTodos: number | null = null;
             /**
              * 从 assistantMessageEvent 中提取工具调用信息。
              * 运行时实测形态（0.82–0.84）：{ type, contentIndex, partial: { content: [
@@ -206,8 +218,10 @@ export class PiEngine implements AgentEngine {
                     case "message_update": {
                         const ame = event.assistantMessageEvent as Record<string, any> | undefined;
                         if (!ame) break;
-                        if (ame.type === "text_delta" && typeof ame.delta === "string")
+                        if (ame.type === "text_delta" && typeof ame.delta === "string") {
+                            roundText += ame.delta;
                             push({ type: "text_delta", delta: ame.delta });
+                        }
                         else if (ame.type === "thinking_delta" && typeof ame.delta === "string")
                             push({ type: "thinking_delta", delta: ame.delta });
                         else if (ame.type === "toolcall_start") {
@@ -309,6 +323,11 @@ export class PiEngine implements AgentEngine {
                         const entry = [...stepToolCalls.entries()].find(
                             ([, c]) => c.callId === callId,
                         );
+                        // #1 验收：todo 扩展快照携带全量任务状态 → 统计未完成项（机械判定依据）
+                        if (String(event.toolName ?? entry?.[1].name ?? "") === "todo") {
+                            const incomplete = parseTodoIncomplete(event.result);
+                            if (incomplete !== null) incompleteTodos = incomplete;
+                        }
                         let resultPreview: string | undefined;
                         try {
                             if (event.result !== undefined)
@@ -347,9 +366,51 @@ export class PiEngine implements AgentEngine {
             live.unsub = () => unsub();
 
             try {
-                await live.session.prompt(input.text);
+                await live.session.prompt(
+                    isGoal ? buildGoalWorkInstruction(input.text) : input.text,
+                );
                 // Y1：回合成功打断错误序列，重置熔断计数
                 this.breaker.reset(sessionId);
+                // #1 目标验收循环：/goal 触发，最多 6 轮证据验收（todo 未清即失败，
+                // 轮内允许最小修复）；耗尽仍未通过则推送终局失败，由总结轮说明未解决项。
+                if (isGoal) {
+                    let passed = false;
+                    for (let round = 1; round <= GOAL_MAX_ACCEPTANCE_ROUNDS; round++) {
+                        push({ type: "goal_acceptance_started", round });
+                        roundText = "";
+                        try {
+                            await live.session.prompt(buildAcceptancePrompt(input.text, round));
+                        } catch (acceptErr) {
+                            const acceptMessage =
+                                acceptErr instanceof Error ? acceptErr.message : String(acceptErr);
+                            logStderr(`PiEngine 会话 ${sessionId} 验收轮 ${round} 异常: ${acceptMessage}`);
+                            push({
+                                type: "goal_acceptance_result",
+                                round,
+                                passed: false,
+                                reason: `验收轮异常：${acceptMessage}`,
+                            });
+                            break;
+                        }
+                        const verdict = evaluateAcceptanceRound({ roundText, incompleteTodos });
+                        push({ type: "goal_acceptance_result", round, ...verdict });
+                        logStderr(
+                            `PiEngine 会话 ${sessionId} 验收轮 ${round}: ${verdict.passed ? "通过" : "未通过"}（${verdict.reason}）`,
+                        );
+                        if (verdict.passed) {
+                            passed = true;
+                            break;
+                        }
+                    }
+                    if (!passed) {
+                        push({
+                            type: "goal_acceptance_result",
+                            round: GOAL_MAX_ACCEPTANCE_ROUNDS,
+                            passed: false,
+                            reason: `已达 ${GOAL_MAX_ACCEPTANCE_ROUNDS} 轮验收上限，未解决项在总结中说明`,
+                        });
+                    }
+                }
                 // Y3 最终总结独立阶段：工作阶段发生过工具执行时，追加一轮收尾总结——
                 // 只依据已验证的工具结果与工作区事实生成交付文本，防"工作日志冒充答案"。
                 // 总结轮失败不影响工作成果（best effort）；未识别 summary_* 的旧客户端降级为连续文本。
