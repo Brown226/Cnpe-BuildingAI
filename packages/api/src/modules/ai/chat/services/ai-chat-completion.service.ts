@@ -56,6 +56,7 @@ import { FollowUpSuggestionsHandler } from "../../agents/handlers/follow-up-sugg
 import { AiMcpServerService } from "../../mcp/services/ai-mcp-server.service";
 import { MemoryService } from "../../memory/services/memory.service";
 import { MemoryExtractionService } from "../../memory/services/memory-extraction.service";
+import { formatMemoriesForPrompt } from "../../memory/services/memory-text";
 import { AiModelService } from "../../model/services/ai-model.service";
 import { ChatBillingHandler } from "../handlers/chat-billing.handler";
 import { ChatTitleHandler } from "../handlers/chat-title.handler";
@@ -230,7 +231,11 @@ export class ChatCompletionService {
                         const referSavedMemories = userPrefs.referSavedMemories !== false;
                         const userMemories =
                             params.userId && referSavedMemories
-                                ? await this.memoryService.getUserMemories(params.userId, 20)
+                                ? await this.memoryService.getUserMemories(
+                                      params.userId,
+                                      20,
+                                      this.extractLastUserText(params.messages),
+                                  )
                                 : [];
                         const systemPrompt = this.buildSystemPrompt(
                             params.systemPrompt,
@@ -859,7 +864,7 @@ export class ChatCompletionService {
         basePrompt?: string,
         documents?: Array<{ filename: string; content: string }>,
         useToolForDocuments?: boolean,
-        userMemories?: Array<{ content: string }>,
+        userMemories?: Array<{ content: string; memoryType?: string; evidence?: string | null }>,
         chatStyle?: string,
         customInstruction?: string,
     ): string {
@@ -867,10 +872,9 @@ export class ChatCompletionService {
         const prefsSection = buildUserPreferencesSection(chatStyle, customInstruction);
         if (prefsSection) sections.push(prefsSection);
         if (userMemories?.length) {
-            const memoryLines = userMemories.map((m) => `- ${m.content}`).join("\n");
-            sections.push(
-                `<user_memory>\nHere is what I know about the user from previous interactions:\n${memoryLines}\n</user_memory>`,
-            );
+            // #6 记忆结构化：评分检索后的预算化装配（默认 3600 字符；类型 + 证据行）
+            const memoryBlock = formatMemoriesForPrompt(userMemories);
+            if (memoryBlock) sections.push(`<user_memory>\n${memoryBlock}\n</user_memory>`);
         }
         if (basePrompt) sections.push(basePrompt);
         if (documents?.length) {

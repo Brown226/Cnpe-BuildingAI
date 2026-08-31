@@ -6,6 +6,17 @@ import { Injectable, Logger } from "@nestjs/common";
 
 import { ScopeResolver } from "@common/modules/scope/scope-resolver.service";
 
+import {
+    clipText,
+    isSafeMemoryText,
+    MAX_EVIDENCE_CHARS,
+    MAX_MEMORY_CONTENT_CHARS,
+    memoryKeywords,
+    MEMORY_TYPES,
+    pickMemoriesForQuery,
+    type MemoryType,
+} from "./memory-text";
+
 @Injectable()
 export class MemoryService extends BaseService<UserMemory> {
     protected readonly logger = new Logger(MemoryService.name);
@@ -23,14 +34,16 @@ export class MemoryService extends BaseService<UserMemory> {
     /**
      * 用户可见记忆（T4.3 隔离型三级并集）：个人 ∪ 本部门 ∪ 组织。
      * 个人记忆 scope=(personal, userId)；部门/组织记忆仅管理端写入。
+     * #6 记忆结构化：提供 query 时按关键词评分检索（恒含最新 4 条 preference），否则按时间倒序。
      */
-    async getUserMemories(userId: string, limit = 20): Promise<UserMemory[]> {
+    async getUserMemories(userId: string, limit = 20, query?: string): Promise<UserMemory[]> {
         const scope = await this.scopeResolver.resolve(userId);
         const departmentFilter =
             scope.departmentIds.length > 0
                 ? " OR (m.scopeType = 'department' AND m.scopeId IN (:...departmentIds))"
                 : "";
-        return this.userMemoryRepository
+        const hasQuery = Boolean(query?.trim());
+        const rows = await this.userMemoryRepository
             .createQueryBuilder("m")
             .where("m.isActive = :active", { active: true })
             .andWhere(
@@ -38,45 +51,75 @@ export class MemoryService extends BaseService<UserMemory> {
                     departmentFilter,
             )
             .orderBy("m.createdAt", "DESC")
-            .take(limit)
+            // 评分检索需要比 limit 更大的候选池（Yan 全量评分；池上限 60 够用）
+            .take(hasQuery ? Math.max(60, limit) : limit)
             .setParameters(
                 scope.departmentIds.length > 0 ? { userId, departmentIds: scope.departmentIds } : { userId },
             )
             .getMany();
+        if (!hasQuery) return rows;
+        return pickMemoriesForQuery(rows, query!.trim(), limit);
     }
 
-    /** 创建个人记忆（写入面收口：对话抽取/用户自写只落 personal） */
+    /**
+     * 创建个人记忆（写入面收口：对话抽取/用户自写只落 personal）。
+     * #6 记忆结构化：敏感/注入文本拒绝入库；重复内容强化（occurrences+1 + 关键词合并）。
+     */
     async createUserMemory(params: {
         userId: string;
         content: string;
         category: string;
         source?: string;
         sourceAgentId?: string;
-    }): Promise<UserMemory> {
-        const isDuplicate = await this.isDuplicateUserMemory(params.userId, params.content);
+        memoryType?: string;
+        evidence?: string;
+    }): Promise<UserMemory | null> {
+        const content = clipText(params.content, MAX_MEMORY_CONTENT_CHARS);
+        if (!content) return null;
+        const evidence = params.evidence ? clipText(params.evidence, MAX_EVIDENCE_CHARS) : null;
+        if (!isSafeMemoryText(content, evidence)) {
+            this.logger.warn(`拒绝写入记忆（含敏感信息或注入模式）: "${content.slice(0, 60)}..."`);
+            return null;
+        }
+        const isDuplicate = await this.isDuplicateUserMemory(params.userId, content);
         if (isDuplicate) {
-            this.logger.debug(
-                `Skipping duplicate user memory: "${params.content.slice(0, 60)}..."`,
-            );
-            return isDuplicate;
+            return this.reinforceUserMemory(isDuplicate, evidence);
         }
 
+        const memoryType = (MEMORY_TYPES as readonly string[]).includes(params.memoryType ?? "")
+            ? (params.memoryType as MemoryType)
+            : "project";
         const memory = this.userMemoryRepository.create({
             userId: params.userId,
-            content: params.content,
+            content,
             category: params.category,
             source: params.source,
             sourceAgentId: params.sourceAgentId,
             isActive: true,
             scopeType: "personal",
             scopeId: params.userId,
+            memoryType,
+            evidence,
+            keywords: memoryKeywords(content),
+            occurrences: 1,
         });
         return this.userMemoryRepository.save(memory);
     }
 
+    /** 重复记忆强化：occurrences+1、关键词合并（存量行补算）、证据刷新（Yan reinforce 语义） */
+    private async reinforceUserMemory(
+        existing: UserMemory,
+        evidence: string | null,
+    ): Promise<UserMemory> {
+        existing.occurrences = Math.max(1, (existing.occurrences ?? 1) + 1);
+        existing.keywords = memoryKeywords(existing.content, existing.keywords ?? undefined);
+        if (evidence) existing.evidence = evidence;
+        return this.userMemoryRepository.save(existing);
+    }
+
     /**
      * 管理端创建部门/组织共享记忆（T4.3：共享记忆仅管理端可写，防个人对话污染）。
-     * userId 列保留创建者语义，可见性由 scope 列决定。
+     * userId 列保留创建者语义，可见性由 scope 列决定；#6：安全过滤 + 结构化类型。
      */
     async createScopedMemory(params: {
         scopeType: "department" | "org";
@@ -85,8 +128,17 @@ export class MemoryService extends BaseService<UserMemory> {
         content: string;
         category: string;
         source?: string;
-    }): Promise<UserMemory> {
-        const normalized = params.content.trim().toLowerCase();
+        memoryType?: string;
+        evidence?: string;
+    }): Promise<UserMemory | null> {
+        const content = clipText(params.content, MAX_MEMORY_CONTENT_CHARS);
+        if (!content) return null;
+        const evidence = params.evidence ? clipText(params.evidence, MAX_EVIDENCE_CHARS) : null;
+        if (!isSafeMemoryText(content, evidence)) {
+            this.logger.warn(`拒绝写入共享记忆（含敏感信息或注入模式）: "${content.slice(0, 60)}..."`);
+            return null;
+        }
+        const normalized = content.trim().toLowerCase();
         const duplicate = await this.userMemoryRepository
             .createQueryBuilder("m")
             .where("m.isActive = true")
@@ -100,20 +152,24 @@ export class MemoryService extends BaseService<UserMemory> {
             .andWhere("LOWER(TRIM(m.content)) = :normalized", { normalized })
             .getOne();
         if (duplicate) {
-            this.logger.debug(
-                `Skipping duplicate scoped memory: "${params.content.slice(0, 60)}..."`,
-            );
-            return duplicate;
+            return this.reinforceUserMemory(duplicate, evidence);
         }
 
+        const memoryType = (MEMORY_TYPES as readonly string[]).includes(params.memoryType ?? "")
+            ? (params.memoryType as MemoryType)
+            : "project";
         const memory = this.userMemoryRepository.create({
             userId: params.creatorId,
-            content: params.content,
+            content,
             category: params.category,
             source: params.source,
             isActive: true,
             scopeType: params.scopeType,
             scopeId: params.scopeType === "department" ? params.departmentId : null,
+            memoryType,
+            evidence,
+            keywords: memoryKeywords(content),
+            occurrences: 1,
         });
         return this.userMemoryRepository.save(memory);
     }

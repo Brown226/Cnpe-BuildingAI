@@ -34,6 +34,19 @@ export const MEMORY_EXTRACTION_PROMPT = (conversationText: string, hasAgent: boo
   
   ---
   
+  ## Structured Memory Type
+
+  Also assign each memory one structured **memoryType** (choose the closest):
+
+  1. "preference" — stable likes/dislikes, style, language, standing instructions
+  2. "environment" — stable facts about the user's tools, paths, system, team setup
+  3. "project" — current work project context and reusable domain facts
+  4. "decision" — choices the user explicitly agreed on
+  5. "procedure" — repeated how-to steps the user follows
+  6. "failure_solution" — a problem encountered and what fixed it
+
+  ---
+
   ## What IS worth remembering
   
   Extract memories that are:
@@ -71,6 +84,8 @@ export const MEMORY_EXTRACTION_PROMPT = (conversationText: string, hasAgent: boo
   - Do NOT extract information that comes only from the assistant
   - Avoid duplicates
   - Prefer fewer high-quality memories over many weak ones
+  - Provide "evidence": a short verbatim quote (≤500 chars) from the conversation supporting the memory
+  - NEVER include secrets (API keys, passwords, tokens, private keys, authorization headers) in memories or evidence — skip such memories entirely
   
   ---
   

@@ -326,7 +326,11 @@ export class AgentChatCompletionService {
 
                     const [userMemories, agentMemories] = agent.modelRouting?.memoryModel?.modelId
                         ? await Promise.all([
-                              this.memoryService.getUserMemories(params.userId, maxUserMem),
+                              this.memoryService.getUserMemories(
+                                  params.userId,
+                                  maxUserMem,
+                                  this.extractLastUserText(params.messages),
+                              ),
                               this.memoryService.getAgentMemories(
                                   params.userId,
                                   params.agentId,

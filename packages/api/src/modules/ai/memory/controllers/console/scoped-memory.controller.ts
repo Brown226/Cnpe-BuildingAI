@@ -43,6 +43,8 @@ export class ScopedMemoryConsoleController {
             content: dto.content,
             category: dto.category,
             source: dto.source,
+            memoryType: dto.memoryType,
+            evidence: dto.evidence,
         });
     }
 

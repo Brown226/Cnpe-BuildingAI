@@ -1,6 +1,8 @@
 import { Type } from "class-transformer";
 import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 
+import { MEMORY_TYPES } from "../services/memory-text";
+
 /** 管理端创建部门/组织共享记忆（T4.3：共享记忆仅管理端可写） */
 export class CreateScopedMemoryDto {
     @IsIn(["department", "org"], { message: "scopeType 仅支持 department | org" })
@@ -17,6 +19,15 @@ export class CreateScopedMemoryDto {
     @IsString()
     @MaxLength(50)
     category: string;
+
+    @IsOptional()
+    @IsIn(MEMORY_TYPES as unknown as string[], { message: "memoryType 不是合法的结构化记忆类型" })
+    memoryType?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    evidence?: string;
 
     @IsOptional()
     @IsString()

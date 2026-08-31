@@ -52,6 +52,8 @@ export class MemoryExtractionService {
                             category: memory.category,
                             source: conversationId,
                             sourceAgentId: agentId,
+                            memoryType: memory.memoryType,
+                            evidence: memory.evidence,
                         });
                     }
                     if (memory.type === "agent_specific" && agentId) {
