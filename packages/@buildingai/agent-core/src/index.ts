@@ -22,6 +22,7 @@ import { PolicyEngine, assertAllowed } from "./policy/engine.js";
 import type { PermissionMode } from "./policy/types.js";
 import { ApprovalBroker } from "./approval/broker.js";
 import { AuditCollector } from "./audit/collector.js";
+import { UsageReporter } from "./audit/usage-reporter.js";
 import { FileTools } from "./tools/file-tools.js";
 import { CommandExecutor } from "./tools/command-exec.js";
 import { OfficeTools } from "./tools/office-tools.js";
@@ -39,6 +40,8 @@ import { TerminalManager } from "./terminal/pty.js";
 
 const rpc = new RpcServer();
 const audit = new AuditCollector();
+/** 计量兑底上报（网关治理 P0）：仅开发直连模式启用，生产网关模式下不启用避免双算 */
+const usageReporter = new UsageReporter();
 const workspaces = new WorkspaceStore();
 const policy = new PolicyEngine(workspaces);
 const approvals = new ApprovalBroker((method, params) => rpc.notify(method, params));
@@ -358,6 +361,8 @@ rpc.register("initialize", (params) => {
     policy.setEgressAllowlist(pack.egressAllowlist ?? []);
     const pack0 = runtimeConfig.require()!;
     audit.configure(pack0.serverUrl, pack0.token, pack0.userId);
+    // 计量兑底：仅开发直连模式启用（生产走网关请求级计量，避免双算）
+    if (process.env.DEV_MODEL_BASE_URL) usageReporter.configure(pack0.serverUrl, pack0.token);
     // T1.3：会话 JSONL 根目录（桌面端下发；缺省系统临时目录）
     sessions = new SessionJsonlStore(pack.sessionsDir || SessionJsonlStore.defaultRoot());
     // T5.1：定时任务调度器（数据目录：任务/记录；启动后按调度触发）
@@ -960,6 +965,19 @@ async function pumpSessionEvents(
                     modelId: event.modelId,
                 },
             });
+            // 计量账本兑底（网关治理 P0 · A2）：仅开发直连模式启用。
+            // 生产网关模式下网关请求级计量（source=gateway）已覆盖，避免双算。
+            if (usageReporter.enabled) {
+                usageReporter.record({
+                    mode: event.mode,
+                    modelId: event.modelId,
+                    sessionId,
+                    inputTokens: event.inputTokens,
+                    outputTokens: event.outputTokens,
+                    cacheReadTokens: event.cacheReadTokens ?? 0,
+                    cacheWriteTokens: event.cacheWriteTokens ?? 0,
+                });
+            }
         } else if (event.type === "done" || event.type === "error") {
             const full = assistantText + (toolSummary.trim() ? `\n${toolSummary.trim()}` : "");
             if (full.trim())

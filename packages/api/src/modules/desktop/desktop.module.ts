@@ -2,9 +2,11 @@ import { TypeOrmModule } from "@buildingai/db/@nestjs/typeorm";
 import { DesktopAuditEvent, Dict } from "@buildingai/db/entities";
 import { Module } from "@nestjs/common";
 
+import { GatewayModule } from "../gateway/gateway.module";
 import { ScopeModule } from "../../common/modules/scope/scope.module";
 import { DesktopAuditConsoleController, DesktopAuditIngestController } from "./desktop-audit.controller";
 import { DesktopConfigController } from "./desktop-config.controller";
+import { DesktopUsageIngestController } from "./desktop-usage.controller";
 import { DesktopAuditService } from "./desktop-audit.service";
 
 /**
@@ -12,11 +14,17 @@ import { DesktopAuditService } from "./desktop-audit.service";
  *
  * - 配置下发：GET /api/desktop/config（默认权限模式 + 策略键表 T4.5，T4.3 scope 三级合并）
  * - 审计上报接收：POST /api/v1/desktop/audit/batch（ADR-07 强制上服部分）
+ * - 用量兜底上报：POST /api/v1/desktop/usage/batch（source="client"，仅网关未覆盖场景）
  * - 控制台查询：/consoleapi/desktop-audit
  */
 @Module({
-    imports: [TypeOrmModule.forFeature([DesktopAuditEvent, Dict]), ScopeModule],
-    controllers: [DesktopConfigController, DesktopAuditIngestController, DesktopAuditConsoleController],
+    imports: [TypeOrmModule.forFeature([DesktopAuditEvent, Dict]), ScopeModule, GatewayModule],
+    controllers: [
+        DesktopConfigController,
+        DesktopAuditIngestController,
+        DesktopUsageIngestController,
+        DesktopAuditConsoleController,
+    ],
     providers: [DesktopAuditService],
     exports: [DesktopAuditService],
 })

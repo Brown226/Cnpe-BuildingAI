@@ -26,6 +26,16 @@ import {
 } from "./goal-acceptance.js";
 
 /** 会话运行时：pi session + 事件泵 + 挂起 resolve */
+/** 网关模型目录条目（A4）：GET /gateway/models 下发的 data[] 元素 */
+interface GatewayModelEntry {
+    id: string;
+    name: string;
+    reasoning: boolean;
+    cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+    contextWindow: number;
+    maxTokens: number;
+}
+
 interface LiveSession {
     sessionId: string;
     session: AgentSession;
@@ -92,6 +102,8 @@ export class PiEngine implements AgentEngine {
     private resolvers = new Map<string, (() => void)[]>();
     private providerId = "huashu-gateway";
     private tempFiles: string[] = [];
+    /** 网关模型目录（A4）：启动时拉取，空表示目录不可用（回退兑底单模型） */
+    private catalogModels: GatewayModelEntry[] | null = null;
     /** start() 解析出的最终上游地址（网关或开发端点） */
     private resolvedBaseUrl = "";
     /** T1.2 前缀指纹：按模式跟踪不可变前缀基准，每回合校验漂移 */
@@ -112,6 +124,12 @@ export class PiEngine implements AgentEngine {
         }
         const modelId = config.defaultModel?.modelId ?? process.env.DEV_MODEL_ID ?? "gpt-5.6-sol";
         this.resolvedBaseUrl = baseUrl;
+
+        // 网关治理 P0 · A4：网关模式下拉取服务端模型目录（含真实单价/上下文/推理能力），
+        // 失败或为空时回退内置单模型兑底（不阻塞启动）
+        if (config.modelGatewayUrl) {
+            this.catalogModels = await this.fetchGatewayModels(baseUrl, apiKey);
+        }
 
         // models.json 让 runtime 的 provider 注册表认识自定义 provider
         const modelsPath = await this.writeModelsJson(baseUrl, modelId);
@@ -542,23 +560,26 @@ export class PiEngine implements AgentEngine {
     // ── 内部 ───────────────────────────────────────────────────────────
 
     private async writeModelsJson(baseUrl: string, modelId: string): Promise<string> {
+        // A4：目录可用时全量下发；默认模型不在目录内时补一条兑底条目（保证可启动）
+        const catalog = this.catalogModels ?? [];
+        const entries = catalog.some((m) => m.id === modelId)
+            ? catalog
+            : [...catalog, PiEngine.fallbackModelEntry(modelId)];
         const payload = {
             providers: {
                 [this.providerId]: {
                     name: "华数模型网关",
                     baseUrl,
                     api: "openai-completions",
-                    models: [
-                        {
-                            id: modelId,
-                            name: modelId,
-                            reasoning: false,
-                            input: ["text"],
-                            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-                            contextWindow: 128_000,
-                            maxTokens: 8_192,
-                        },
-                    ],
+                    models: entries.map((m) => ({
+                        id: m.id,
+                        name: m.name,
+                        reasoning: m.reasoning,
+                        input: ["text"],
+                        cost: m.cost,
+                        contextWindow: m.contextWindow,
+                        maxTokens: m.maxTokens,
+                    })),
                 },
             },
         };
@@ -568,22 +589,79 @@ export class PiEngine implements AgentEngine {
         return file;
     }
 
+    /** 从网关 GET /models 拉取目录（4s 超时；任何失败返回 null 走兑底） */
+    private async fetchGatewayModels(baseUrl: string, apiKey: string): Promise<GatewayModelEntry[] | null> {
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 4_000);
+            const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, {
+                headers: { authorization: `Bearer ${apiKey}` },
+                signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (!res.ok) return null;
+            const json = (await res.json()) as { data?: Array<Record<string, unknown>> };
+            const list = Array.isArray(json?.data) ? json.data : [];
+            if (list.length === 0) return null;
+            const num = (v: unknown, fallback: number): number =>
+                typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : fallback;
+            const entries = list
+                .filter((m) => typeof m.id === "string" && m.id)
+                .map((m) => {
+                    const cost = (m.cost ?? {}) as Record<string, unknown>;
+                    return {
+                        id: String(m.id),
+                        name: typeof m.name === "string" && m.name ? m.name : String(m.id),
+                        reasoning: m.reasoning === true,
+                        cost: {
+                            input: num(cost.input, 0),
+                            output: num(cost.output, 0),
+                            cacheRead: num(cost.cacheRead, 0),
+                            cacheWrite: num(cost.cacheWrite, 0),
+                        },
+                        contextWindow: num(m.contextWindow, 128_000),
+                        maxTokens: num(m.maxTokens, 8_192),
+                    } satisfies GatewayModelEntry;
+                });
+            if (entries.length === 0) return null;
+            logStderr(`模型目录已下发：${entries.length} 个模型（A4）`);
+            return entries;
+        } catch (err) {
+            logStderr(`模型目录拉取失败，回退兑底单模型: ${String(err)}`);
+            return null;
+        }
+    }
+
+    /** 兑底模型条目（目录不可用时保证可启动；不写死成本语义——cost 全 0 仅为占位） */
+    private static fallbackModelEntry(modelId: string): GatewayModelEntry {
+        return {
+            id: modelId,
+            name: modelId,
+            reasoning: false,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128_000,
+            maxTokens: 8_192,
+        };
+    }
+
     private buildModelObject(modelId: string, mode?: AgentMode, sessionId?: string): Model<Api> {
         // 网关治理 P0：mode/sessionId 随模型静态头透传，供网关计量落库（usage 事件之外的第二通道）
         const headers: Record<string, string> = {};
         if (mode) headers["x-buildingai-mode"] = mode;
         if (sessionId) headers["x-buildingai-session"] = sessionId.slice(0, 64);
+        // A4：目录命中时用真实元数据（能力/成本），未命中回退兑底值
+        const entry = this.catalogModels?.find((m) => m.id === modelId);
         return {
             id: modelId,
-            name: modelId,
+            name: entry?.name ?? modelId,
             provider: this.providerId,
             api: "openai-completions",
             baseUrl: this.resolvedBaseUrl,
-            reasoning: false,
+            reasoning: entry?.reasoning ?? false,
             input: ["text"],
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 128_000,
-            maxTokens: 8_192,
+            cost: entry?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: entry?.contextWindow ?? 128_000,
+            maxTokens: entry?.maxTokens ?? 8_192,
             ...(Object.keys(headers).length > 0 ? { headers } : {}),
         } as unknown as Model<Api>;
     }

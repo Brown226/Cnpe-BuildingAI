@@ -16,6 +16,7 @@ import { Readable, Transform } from "node:stream";
 
 import { GatewayService } from "./gateway.service";
 import { GatewayUsageService } from "./gateway-usage.service";
+import { DesktopModelCatalogService } from "./desktop-model-catalog.service";
 
 /**
  * 桌面模型网关控制器（ADR-05）
@@ -39,17 +40,29 @@ export class GatewayWebController {
     constructor(
         private readonly gatewayService: GatewayService,
         private readonly usageService: GatewayUsageService,
+        private readonly catalogService: DesktopModelCatalogService,
     ) {}
 
-    /** 模型列表透传 */
+    /**
+     * 模型清单下发（A4）：返回服务端目录（含单价/contextWindow/maxTokens/reasoning）。
+     * 目录为空时回退上游透传（开发/灰度期兼容）。
+     */
     @Get("models")
     async models(@Res() res: Response): Promise<void> {
         try {
-            const upstream = await this.gatewayService.forward("GET", "/models", undefined, undefined);
-            res.status(upstream.status);
-            this.copyHeaders(upstream, res);
-            if (upstream.body) Readable.fromWeb(upstream.body as never).pipe(res);
-            else res.end();
+            const entries = await this.catalogService.listActive();
+            if (entries.length === 0) {
+                // 兜底：目录未配置时保持旧行为（上游透传），不影响已有客户端
+                const upstream = await this.gatewayService.forward("GET", "/models", undefined, undefined);
+                res.status(upstream.status);
+                this.copyHeaders(upstream, res);
+                if (upstream.body) Readable.fromWeb(upstream.body as never).pipe(res);
+                else res.end();
+                return;
+            }
+            const models = entries.map((row) => this.catalogService.toPiModelEntry(row));
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ object: "list", data: models }));
         } catch (err) {
             this.writeGatewayError(res, err);
         }

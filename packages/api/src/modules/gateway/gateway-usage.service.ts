@@ -3,6 +3,8 @@ import { InjectRepository } from "@buildingai/db/@nestjs/typeorm";
 import { DepartmentUserIndex, DesktopUsageEvent } from "@buildingai/db/entities";
 import { Repository } from "@buildingai/db/typeorm";
 
+import { DesktopModelCatalogService } from "./desktop-model-catalog.service";
+
 /**
  * 网关计量服务（网关治理 P0 · A2/A3）
  *
@@ -43,11 +45,22 @@ export class GatewayUsageService {
         private readonly usageRepo: Repository<DesktopUsageEvent>,
         @InjectRepository(DepartmentUserIndex)
         private readonly deptIndexRepo: Repository<DepartmentUserIndex>,
+        private readonly catalogService: DesktopModelCatalogService,
     ) {}
 
-    /** 异步落库；任何失败仅告警 */
+    /** 异步落库；任何失败仅告警。cost 缺省时按目录单价现算（B1 快照口径） */
     async record(input: GatewayUsageRecord): Promise<void> {
         try {
+            const costMicroYuan =
+                input.costMicroYuan !== undefined
+                    ? input.costMicroYuan
+                    : await this.computeCost(
+                          input.modelId ?? undefined,
+                          input.inputTokens ?? 0,
+                          input.outputTokens ?? 0,
+                          input.cacheReadTokens ?? 0,
+                          input.cacheWriteTokens ?? 0,
+                      );
             const entity = this.usageRepo.create({
                 userId: input.userId,
                 occurredAt: new Date(),
@@ -60,9 +73,9 @@ export class GatewayUsageService {
                 cacheReadTokens: Math.max(0, Math.floor(input.cacheReadTokens ?? 0)),
                 cacheWriteTokens: Math.max(0, Math.floor(input.cacheWriteTokens ?? 0)),
                 costMicroYuan:
-                    input.costMicroYuan === null || input.costMicroYuan === undefined
+                    costMicroYuan === null || costMicroYuan === undefined
                         ? null
-                        : Math.max(0, Math.floor(input.costMicroYuan)),
+                        : Math.max(0, Math.floor(costMicroYuan)),
                 source: input.source ?? "gateway",
                 departmentId: input.departmentId ?? (await this.resolveDepartment(input.userId)),
             });
@@ -70,6 +83,112 @@ export class GatewayUsageService {
         } catch (err) {
             this.logger.warn(`计量落库失败（不阻断请求）: ${String(err)}`);
         }
+    }
+
+    /**
+     * B1 成本换算（微元）：tokens × 目录单价。
+     * 单价单位为元/百万 tokens → 微元 = tokens × price（元/M）× 1e6 / 1e6 = tokens × price。
+     * 目录缺失或未配置单价返回 null（宁可少记不虚报）。
+     */
+    private async computeCost(
+        modelId: string | undefined,
+        inputTokens: number,
+        outputTokens: number,
+        cacheReadTokens: number,
+        cacheWriteTokens: number,
+    ): Promise<number | null> {
+        if (!modelId) return null;
+        const pricing = await this.catalogService.findPricing(modelId);
+        if (!pricing) return null;
+        const cost =
+            inputTokens * (pricing.inputPrice ?? 0) +
+            outputTokens * (pricing.outputPrice ?? 0) +
+            cacheReadTokens * (pricing.cacheReadPrice ?? 0) +
+            cacheWriteTokens * (pricing.cacheWritePrice ?? 0);
+        return Math.round(cost);
+    }
+
+    /**
+     * B3 部门/模式/模型聚合报表（账本口径，B3）。
+     * 按 departmentId × mode × modelId 聚合 tokens 与成本，供管理端用量报表页消费。
+     */
+    async summary(params: {
+        from?: Date;
+        to?: Date;
+        departmentId?: string;
+        userId?: string;
+    }): Promise<{
+        items: Array<{
+            departmentId: string | null;
+            mode: string | null;
+            modelId: string | null;
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadTokens: number;
+            costMicroYuan: number;
+            costKnown: boolean;
+            events: number;
+        }>;
+        total: { inputTokens: number; outputTokens: number; costMicroYuan: number; costKnown: boolean };
+    }> {
+        const qb = this.usageRepo
+            .createQueryBuilder("u")
+            .select("u.departmentId", "departmentId")
+            .addSelect("u.mode", "mode")
+            .addSelect("u.modelId", "modelId")
+            .addSelect("SUM(u.inputTokens)", "inputTokens")
+            .addSelect("SUM(u.outputTokens)", "outputTokens")
+            .addSelect("SUM(u.cacheReadTokens)", "cacheReadTokens")
+            .addSelect("SUM(u.costMicroYuan)", "costMicroYuan")
+            .addSelect("COUNT(u.costMicroYuan)", "costEvents")
+            .addSelect("COUNT(*)", "events")
+            .groupBy("u.departmentId")
+            .addGroupBy("u.mode")
+            .addGroupBy("u.modelId");
+        if (params.from) qb.andWhere("u.occurredAt >= :from", { from: params.from });
+        if (params.to) qb.andWhere("u.occurredAt <= :to", { to: params.to });
+        if (params.departmentId) qb.andWhere("u.departmentId = :departmentId", { departmentId: params.departmentId });
+        if (params.userId) qb.andWhere("u.userId = :userId", { userId: params.userId });
+
+        const rows = (await qb.getRawMany()) as Array<{
+            departmentId: string | null;
+            mode: string | null;
+            modelId: string | null;
+            inputTokens: string | null;
+            outputTokens: string | null;
+            cacheReadTokens: string | null;
+            costMicroYuan: string | null;
+            costEvents: string | null;
+            events: string | null;
+        }>;
+
+        const items = rows.map((r) => {
+            const events = Number(r.events ?? 0);
+            const costEvents = Number(r.costEvents ?? 0);
+            // costKnown=false 表示该组存在单价缺失的记录（成本只对已知部分求和）
+            const costKnown = costEvents >= events;
+            return {
+                departmentId: r.departmentId,
+                mode: r.mode,
+                modelId: r.modelId,
+                inputTokens: Number(r.inputTokens ?? 0),
+                outputTokens: Number(r.outputTokens ?? 0),
+                cacheReadTokens: Number(r.cacheReadTokens ?? 0),
+                costMicroYuan: Number(r.costMicroYuan ?? 0),
+                costKnown,
+                events,
+            };
+        });
+        const total = items.reduce(
+            (acc, i) => ({
+                inputTokens: acc.inputTokens + i.inputTokens,
+                outputTokens: acc.outputTokens + i.outputTokens,
+                costMicroYuan: acc.costMicroYuan + i.costMicroYuan,
+                costKnown: acc.costKnown && i.costKnown,
+            }),
+            { inputTokens: 0, outputTokens: 0, costMicroYuan: 0, costKnown: true },
+        );
+        return { items, total };
     }
 
     /** 查询用户主部门（首条绑定），带进程内缓存 */
