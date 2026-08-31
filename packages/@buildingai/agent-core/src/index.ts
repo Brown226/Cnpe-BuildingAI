@@ -946,7 +946,8 @@ async function pumpSessionEvents(
         else if (event.type === "tool_call_end")
             toolSummary += `\n[工具 ${event.name ?? "tool"} ${event.ok ? "完成" : "失败"} · ${event.durationMs ?? 0}ms]`;
         else if (event.type === "usage") {
-            // T4.6 用量计费：token 计量随审计通道上报服务端（按用户聚合）
+            // T4.6 用量计费：token 计量随审计通道上报服务端（按用户聚合）。
+            // 网关治理 P0：补 mode/modelId 维度，供服务端按模式×模型分账与成本换算。
             audit.record({
                 type: "session.usage",
                 action: "token.usage",
@@ -955,6 +956,8 @@ async function pumpSessionEvents(
                     outputTokens: event.outputTokens,
                     cacheReadTokens: event.cacheReadTokens ?? 0,
                     cacheWriteTokens: event.cacheWriteTokens ?? 0,
+                    mode: event.mode,
+                    modelId: event.modelId,
                 },
             });
         } else if (event.type === "done" || event.type === "error") {

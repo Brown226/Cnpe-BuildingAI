@@ -33,6 +33,8 @@ interface LiveSession {
     agentDir: string;
     unsub: () => void;
     mode: AgentMode;
+    /** 会话解析出的模型标识（默认模型或会话级覆盖），供 usage 事件按模型计量 */
+    modelId: string;
 }
 
 const PLATFORM_SYSTEM_PROMPT = [
@@ -289,6 +291,8 @@ export class PiEngine implements AgentEngine {
                                 outputTokens,
                                 cacheReadTokens,
                                 cacheWriteTokens,
+                                mode: live.mode,
+                                modelId: live.modelId,
                             });
                         }
                         break;
@@ -564,7 +568,11 @@ export class PiEngine implements AgentEngine {
         return file;
     }
 
-    private buildModelObject(modelId: string): Model<Api> {
+    private buildModelObject(modelId: string, mode?: AgentMode, sessionId?: string): Model<Api> {
+        // 网关治理 P0：mode/sessionId 随模型静态头透传，供网关计量落库（usage 事件之外的第二通道）
+        const headers: Record<string, string> = {};
+        if (mode) headers["x-buildingai-mode"] = mode;
+        if (sessionId) headers["x-buildingai-session"] = sessionId.slice(0, 64);
         return {
             id: modelId,
             name: modelId,
@@ -576,6 +584,7 @@ export class PiEngine implements AgentEngine {
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
             contextWindow: 128_000,
             maxTokens: 8_192,
+            ...(Object.keys(headers).length > 0 ? { headers } : {}),
         } as unknown as Model<Api>;
     }
 
@@ -627,7 +636,7 @@ export class PiEngine implements AgentEngine {
             (t) => !t.modes || t.modes.includes(mode),
         );
         const { session } = await createAgentSession({
-            model: this.buildModelObject(modelId),
+            model: this.buildModelObject(modelId, mode, sessionId),
             modelRuntime: this.runtime,
             resourceLoader,
             customTools: toPiTools(modeTools, { sessionId }),
@@ -644,6 +653,7 @@ export class PiEngine implements AgentEngine {
             agentDir,
             unsub: () => undefined,
             mode,
+            modelId,
         };
         this.sessions.set(sessionId, live);
         return live;

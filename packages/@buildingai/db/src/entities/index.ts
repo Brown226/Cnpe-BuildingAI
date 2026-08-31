@@ -32,6 +32,7 @@ export { Department } from "./department.entity";
 export { DepartmentPrincipal } from "./department-principal.entity";
 export { DepartmentUserIndex } from "./department-user-index.entity";
 export { DesktopAuditEvent } from "./desktop-audit-event.entity";
+export { DesktopUsageEvent } from "./desktop-usage-event.entity";
 export { Dict } from "./dict.entity";
 export { Extension } from "./extension.entity";
 export { ExtensionFeature } from "./extension-feature.entity";

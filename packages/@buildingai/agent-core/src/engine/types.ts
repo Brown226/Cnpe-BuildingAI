@@ -102,6 +102,16 @@ export type EngineEvent =
           cacheReadTokens?: number;
           /** 模型缓存写入（T1.2 缓存优先可观测性；缺省 0） */
           cacheWriteTokens?: number;
+          /**
+           * 会话模式（T1.1 双模式）：供服务端按 code/work 分账与报表。
+           * 由引擎在发出 usage 事件时补齐；缺失时服务端按会话侧记录兜底。
+           */
+          mode?: AgentMode;
+          /**
+           * 当次实际使用的模型标识：供服务端按模型换算成本（网关治理 P0）。
+           * 来源为会话解析出的 modelId（默认模型或会话级覆盖）。
+           */
+          modelId?: string;
       }
     | { type: "session_created"; sessionId: string }
     | { type: "error"; message: string; recoverable: boolean }
