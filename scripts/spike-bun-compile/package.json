@@ -1,0 +1,9 @@
+{
+    "name": "spike-bun-compile",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@lydell/node-pty": "^1.0.0",
+        "jiti": "^2.4.0"
+    }
+}
