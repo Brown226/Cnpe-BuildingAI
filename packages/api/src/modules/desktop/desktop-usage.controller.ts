@@ -1,7 +1,14 @@
 import { HttpErrorFactory } from "@buildingai/errors";
+import { Playground } from "@buildingai/decorators/playground.decorator";
 import { Body, Controller, HttpCode, Post } from "@nestjs/common";
 
 import { GatewayUsageService } from "../gateway/gateway-usage.service";
+
+/** 结构化最小类型（同 gateway.controller 用法，避免循环引用） */
+interface UserPlaygroundLike {
+    id?: string;
+    username?: string;
+}
 
 /**
  * 桌面用量兜底上报接收端点（网关治理 P0 · A2 客户端侧）
@@ -33,6 +40,7 @@ export class DesktopUsageIngestController {
                 cacheWriteTokens?: number;
             }>;
         },
+        @Playground() playground?: UserPlaygroundLike,
     ): Promise<{ saved: number; dropped: number }> {
         if (!body || !Array.isArray(body.events)) {
             throw HttpErrorFactory.badRequest("events 数组缺失");
@@ -46,6 +54,7 @@ export class DesktopUsageIngestController {
             }
             try {
                 await this.usageService.record({
+                    userId: playground?.id,
                     mode: typeof e.mode === "string" ? e.mode.slice(0, 16) : undefined,
                     modelId: typeof e.modelId === "string" ? e.modelId.slice(0, 160) : undefined,
                     sessionId: typeof e.sessionId === "string" ? e.sessionId.slice(0, 64) : undefined,

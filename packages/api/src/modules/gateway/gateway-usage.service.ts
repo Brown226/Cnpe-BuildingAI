@@ -4,6 +4,7 @@ import { DepartmentUserIndex, DesktopUsageEvent } from "@buildingai/db/entities"
 import { Repository } from "@buildingai/db/typeorm";
 
 import { DesktopModelCatalogService } from "./desktop-model-catalog.service";
+import { DesktopQuotaService } from "./desktop-quota.service";
 
 /**
  * 网关计量服务（网关治理 P0 · A2/A3）
@@ -37,8 +38,8 @@ export interface GatewayUsageRecord {
 @Injectable()
 export class GatewayUsageService {
     private readonly logger = new Logger(GatewayUsageService.name);
-    /** 部门快照缓存：userId -> departmentId（进程内，避免每请求一查） */
-    private deptCache = new Map<string, string | null>();
+    /** 部门快照缓存：userId -> { departmentId, expiresAt }（带 TTL，负向 60s 防绑部门后长期不生效） */
+    private deptCache = new Map<string, { departmentId: string | null; expiresAt: number }>();
 
     constructor(
         @InjectRepository(DesktopUsageEvent)
@@ -46,6 +47,7 @@ export class GatewayUsageService {
         @InjectRepository(DepartmentUserIndex)
         private readonly deptIndexRepo: Repository<DepartmentUserIndex>,
         private readonly catalogService: DesktopModelCatalogService,
+        private readonly quotaService: DesktopQuotaService,
     ) {}
 
     /** 异步落库；任何失败仅告警。cost 缺省时按目录单价现算（B1 快照口径） */
@@ -80,6 +82,8 @@ export class GatewayUsageService {
                 departmentId: input.departmentId ?? (await this.resolveDepartment(input.userId)),
             });
             await this.usageRepo.save(entity);
+            // B2：计量落库后触发配额评估（内部自带异常隔离，失败仅告警）
+            await this.quotaService.evaluateAfterRecord(entity.departmentId);
         } catch (err) {
             this.logger.warn(`计量落库失败（不阻断请求）: ${String(err)}`);
         }
@@ -191,17 +195,26 @@ export class GatewayUsageService {
         return { items, total };
     }
 
-    /** 查询用户主部门（首条绑定），带进程内缓存（网关阻断判定共用，public） */
+    /** 查询用户主部门（首条绑定），带进程内缓存（网关阻断判定共用，public）。
+     * 缓存带 TTL：正向 10 分钟；负向（未绑部门）仅 60s，避免用户绑定部门后长时间不生效。 */
     async resolveDepartment(userId?: string): Promise<string | undefined> {
         if (!userId) return undefined;
-        if (this.deptCache.has(userId)) return this.deptCache.get(userId) ?? undefined;
+        const now = Date.now();
+        const cached = this.deptCache.get(userId);
+        if (cached) {
+            if (now < cached.expiresAt) return cached.departmentId ?? undefined;
+            this.deptCache.delete(userId);
+        }
         try {
             const row = await this.deptIndexRepo.findOne({
                 where: { userId },
                 order: { createdAt: "ASC" },
             });
             const deptId = row?.departmentId ?? null;
-            this.deptCache.set(userId, deptId);
+            this.deptCache.set(userId, {
+                departmentId: deptId,
+                expiresAt: now + (deptId ? 10 * 60 * 1000 : 60 * 1000),
+            });
             return deptId ?? undefined;
         } catch {
             return undefined;
