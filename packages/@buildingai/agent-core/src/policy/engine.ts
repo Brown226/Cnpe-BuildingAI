@@ -1,4 +1,5 @@
 import path from "node:path";
+import { classifyShellCommand } from "./command-risk.js";
 import { DEFAULT_COMMAND_BLACKLIST, DEFAULT_COMMAND_WHITELIST, DEFAULT_MODE } from "./types.js";
 import type { Decision, PermissionMode, PolicyConfig } from "./types.js";
 import { RpcError, RpcErrorCodes } from "../protocol/messages.js";
@@ -146,12 +147,29 @@ export class PolicyEngine {
                 reason: `命令工作目录不在工作区白名单内：${path.resolve(cwd)}`,
             };
         }
+        // Y2 高风险命令语义分类（补白名单正则的语义盲区：如白名单 `git .*` 会放行
+        // `git reset --hard`）。high → 非 trust 模式一律走审批；trust 保持自动执行（ADR-06
+        // "信任档全自动" 语义不变），规则名携带风险类别供审计区分。
+        const risk = classifyShellCommand(commandLine);
         switch (this.mode) {
             case "trust":
-                return { action: "allow", rule: "mode_trust" };
+                return {
+                    action: "allow",
+                    rule: risk.level === "high" ? `mode_trust_risk:${risk.category}` : "mode_trust",
+                };
             case "strict":
-                return { action: "require_approval", rule: "mode_strict" };
+                return {
+                    action: "require_approval",
+                    rule: risk.level === "high" ? `mode_strict_risk:${risk.category}` : "mode_strict",
+                };
             case "balanced": {
+                if (risk.level === "high") {
+                    return {
+                        action: "require_approval",
+                        rule: `risk:${risk.category}`,
+                        reason: `高风险命令需确认：${risk.reason}`,
+                    };
+                }
                 const whitelisted = this.whitelistRules.some((r) => r.regex.test(commandLine.trim()));
                 return whitelisted
                     ? { action: "allow", rule: "whitelist_command" }

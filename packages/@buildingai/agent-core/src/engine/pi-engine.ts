@@ -16,6 +16,7 @@ import type { AgentEngine, AgentMode, EngineEvent, EngineStartConfig, ModelRef, 
 import type { PlatformTool } from "../tools/types.js";
 import { toPiTools } from "./platform-tool-adapter.js";
 import { fingerprintPrefix, PrefixFingerprintTracker } from "./prefix-fingerprint.js";
+import { ErrorCircuitBreaker } from "./error-breaker.js";
 
 /** 会话运行时：pi session + 事件泵 + 挂起 resolve */
 interface LiveSession {
@@ -56,6 +57,17 @@ const MODE_INSTRUCTIONS: Record<AgentMode, string> = {
  * AgentEngine 四原语接口。模型接入经 OpenAI 兼容自定义 provider；
  * 开发期直连 .env.local 端点，生产期同一通道指向服务端网关。
  */
+/**
+ * Y3 总结阶段指令（借鉴 Yan-Agent 最终总结独立阶段）：
+ * 工作阶段完成后以无工具约束的收尾请求生成交付文本，
+ * 只依据已验证的工具结果与工作区事实，不复述执行过程。
+ */
+const SUMMARY_INSTRUCTION = [
+    "【交付总结】以上任务的工作阶段已完成。请基于已执行工具的结果与工作区中的事实，",
+    "输出面向用户的最终交付总结：完成了什么、关键产物与位置、未尽事项与建议。",
+    "要求：不要调用任何工具；不要复述执行过程；直接给出交付内容。",
+].join("");
+
 export class PiEngine implements AgentEngine {
     readonly name = "pi";
 
@@ -75,6 +87,8 @@ export class PiEngine implements AgentEngine {
     private resolvedBaseUrl = "";
     /** T1.2 前缀指纹：按模式跟踪不可变前缀基准，每回合校验漂移 */
     private fingerprints = new PrefixFingerprintTracker();
+    /** Y1 重复错误熔断：同一会话同类错误连续 3 次即标记不可恢复，停止自动重试 */
+    private breaker = new ErrorCircuitBreaker(3);
 
     async start(config: EngineStartConfig): Promise<void> {
         this.startConfig = config;
@@ -163,6 +177,8 @@ export class PiEngine implements AgentEngine {
                 string,
                 { name: string; startedAt: number; ok: boolean; callId: string; args: string }
             >();
+            /** Y3：本回合是否发生过工具执行（总结轮仅在真实工作发生后追加） */
+            let sawToolExecution = false;
             /**
              * 从 assistantMessageEvent 中提取工具调用信息。
              * 运行时实测形态（0.82–0.84）：{ type, contentIndex, partial: { content: [
@@ -266,6 +282,7 @@ export class PiEngine implements AgentEngine {
                     case "tool_execution_start": {
                         // 工具真实执行开始：此刻参数已完整，推送 tool_call_start
                         // （卡片/面板可取全文：子代理 prompt、计划内容、todo 参数等）
+                        sawToolExecution = true;
                         const callId = String(event.toolCallId ?? "");
                         const entry = [...stepToolCalls.entries()].find(
                             ([, c]) => c.callId === callId,
@@ -331,11 +348,36 @@ export class PiEngine implements AgentEngine {
 
             try {
                 await live.session.prompt(input.text);
+                // Y1：回合成功打断错误序列，重置熔断计数
+                this.breaker.reset(sessionId);
+                // Y3 最终总结独立阶段：工作阶段发生过工具执行时，追加一轮收尾总结——
+                // 只依据已验证的工具结果与工作区事实生成交付文本，防"工作日志冒充答案"。
+                // 总结轮失败不影响工作成果（best effort）；未识别 summary_* 的旧客户端降级为连续文本。
+                if (sawToolExecution) {
+                    push({ type: "summary_started" });
+                    try {
+                        await live.session.prompt(SUMMARY_INSTRUCTION);
+                    } catch (summaryErr) {
+                        const summaryMessage =
+                            summaryErr instanceof Error ? summaryErr.message : String(summaryErr);
+                        logStderr(
+                            `PiEngine 会话 ${sessionId} 总结轮失败（不影响工作成果）: ${summaryMessage}`,
+                        );
+                    }
+                    push({ type: "summary_done" });
+                }
                 push({ type: "done", stopReason: "end_turn" });
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 logStderr(`PiEngine 会话 ${sessionId} 推理失败: ${message}`);
-                push({ type: "error", message, recoverable: true });
+                // Y1 重复错误熔断：同类错误连续达阈值 → 标记不可恢复（调用方停止自动重试，
+                // 进入可见错误收尾，避免无限烧 token）
+                const breakerState = this.breaker.record(sessionId, message);
+                if (breakerState.tripped)
+                    logStderr(
+                        `PiEngine 会话 ${sessionId} 触发重复错误熔断（连续 ${breakerState.count} 次同类错误）`,
+                    );
+                push({ type: "error", message, recoverable: !breakerState.tripped });
                 push({ type: "done", stopReason: "aborted" });
             }
         } catch (setupErr) {

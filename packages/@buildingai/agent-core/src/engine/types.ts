@@ -99,4 +99,11 @@ export type EngineEvent =
       }
     | { type: "session_created"; sessionId: string }
     | { type: "error"; message: string; recoverable: boolean }
+    /**
+     * Y3 总结阶段标记：工作阶段（含工具调用）完成后、独立总结轮开始/结束。
+     * 总结正文以 text_delta 流出；客户端收到 summary_started 可关闭当前文本块，
+     * 让总结以独立块呈现（不识别标记的旧客户端优雅降级为连续文本）。
+     */
+    | { type: "summary_started" }
+    | { type: "summary_done" }
     | { type: "done"; stopReason: "end_turn" | "aborted" | "max_steps" };
