@@ -10,6 +10,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { llmFileParser } from "@buildingai/llm-file-parser";
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import mammoth from "mammoth";
 import * as PptxGenJSModule from "pptxgenjs";
@@ -30,6 +31,24 @@ import type { WorkspaceStore } from "../workspace/store.js";
 
 /** 模型可消费的解析文本上限（字符），超出截断并标记 */
 const PARSE_CHAR_LIMIT = 60_000;
+
+/**
+ * P1-4 增量收口：这些格式分流到 @buildingai/llm-file-parser 解析
+ * （docx/xlsx/xlsm/csv/txt/md 保持下方直读路径，避免口径回归）。
+ * LFP 的 result.text 为纯文本，与直读路径的返回口径一致。
+ */
+const LFP_PARSED_EXTS = new Set([
+    "pdf",
+    "pptx",
+    "xls",
+    "html",
+    "htm",
+    "xhtml",
+    "rtf",
+    "json",
+    "jsonl",
+    "xml",
+]);
 
 /** pptxgenjs 实例的最小结构化类型（其类型声明为 class+namespace 混合，结构兼容即可） */
 interface PptxGenInstance {
@@ -90,42 +109,50 @@ export class OfficeTools {
         }
         if (!existsSync(abs)) throw new RpcError(RpcErrorCodes.InvalidParams, `文件不存在：${abs}`);
 
-        const ext = path.extname(abs).toLowerCase();
+        const ext = path.extname(abs).toLowerCase().replace(".", "");
         let text = "";
-        switch (ext) {
-            case ".docx": {
-                const r = await mammoth.extractRawText({ path: abs });
-                text = r.value;
-                break;
-            }
-            case ".xlsx":
-            case ".xlsm":
-            case ".csv": {
-                const wb = XLSX.readFile(abs, { dense: false });
-                text = wb.SheetNames.map((name) => {
-                    const ws = wb.Sheets[name];
-                    if (!ws) return "";
-                    return `### 工作表 ${name}\n${XLSX.utils.sheet_to_csv(ws)}`;
-                })
-                    .filter(Boolean)
-                    .join("\n\n");
-                break;
-            }
-            default: {
-                // 文本类直接读取（含 .txt/.md 等）
-                text = readFileSync(abs, "utf8");
+        let parser = "builtin";
+        if (LFP_PARSED_EXTS.has(ext)) {
+            // P1-4：新增格式统一走 llm-file-parser（result.text 纯文本口径）
+            const result = await llmFileParser.parseFromBuffer(readFileSync(abs), path.basename(abs));
+            text = result.text;
+            parser = "llm-file-parser";
+        } else {
+            switch (ext) {
+                case "docx": {
+                    const r = await mammoth.extractRawText({ path: abs });
+                    text = r.value;
+                    break;
+                }
+                case "xlsx":
+                case "xlsm":
+                case "csv": {
+                    const wb = XLSX.readFile(abs, { dense: false });
+                    text = wb.SheetNames.map((name) => {
+                        const ws = wb.Sheets[name];
+                        if (!ws) return "";
+                        return `### 工作表 ${name}\n${XLSX.utils.sheet_to_csv(ws)}`;
+                    })
+                        .filter(Boolean)
+                        .join("\n\n");
+                    break;
+                }
+                default: {
+                    // 文本类直接读取（含 .txt/.md 等）
+                    text = readFileSync(abs, "utf8");
+                }
             }
         }
 
         this.deps.audit.record({
             type: "tool.call",
             action: "office.parse",
-            detail: { target: abs, chars: text.length },
+            detail: { target: abs, chars: text.length, parser },
         });
         return {
             text: text.slice(0, PARSE_CHAR_LIMIT),
             truncated: text.length > PARSE_CHAR_LIMIT,
-            kind: ext.replace(".", ""),
+            kind: ext,
         };
     }
 

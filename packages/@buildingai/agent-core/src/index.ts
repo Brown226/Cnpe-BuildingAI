@@ -15,6 +15,11 @@ import dotenv from "dotenv";
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 dotenv.config({ path: join(PKG_ROOT, ".env.local"), quiet: true, override: false });
 dotenv.config({ quiet: true });
+// stdout 协议帧保护：第三方依赖（pdf.js 等）会经 console.* 向 stdout 打 warning，
+// 任何非 JSON 行都会破坏 stdio JSON-RPC 流——统一改道 stderr（帧由 process.stdout.write 直写，不受影响）。
+for (const level of ["log", "info", "warn", "debug"] as const) {
+    console[level] = ((...args: unknown[]) => console.error(...args)) as typeof console.log;
+}
 import { RpcServer, logStderr } from "./protocol/server.js";
 import { RpcError, RpcErrorCodes } from "./protocol/messages.js";
 import { WorkspaceStore } from "./workspace/store.js";
@@ -158,7 +163,7 @@ const platformTools: PlatformTool[] = [
     {
         name: "parse_document",
         description:
-            "读取并解析工作区中的文档为纯文本（支持 .docx/.xlsx/.csv/.txt/.md）。用于回答关于文档内容的问题或基于现有文件加工。",
+            "读取并解析工作区中的文档为纯文本（支持 .pdf/.docx/.pptx/.xlsx/.xls/.csv/.txt/.md/.html/.rtf/.json/.xml）。用于回答关于文档内容的问题或基于现有文件加工。",
         modes: ["work"],
         parameters: {
             type: "object",
@@ -218,6 +223,27 @@ const platformTools: PlatformTool[] = [
                 rows,
                 typeof args.sheetName === "string" ? args.sheetName : undefined,
             );
+            return { ok: true, summary: r.summary, data: r };
+        },
+    },
+    {
+        name: "export_pptx",
+        description:
+            "把大纲文本生成为工作区内的 PPT 演示 (.pptx)。# 标题 定义一页（可选 ## 副标题），普通行 = 该页要点；适合汇报、宣讲类产出。生成后告知用户保存位置。",
+        modes: ["work"],
+        parameters: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "目标 .pptx 文件绝对路径" },
+                outline: {
+                    type: "string",
+                    description: "大纲文本，如 '# 二期进展\\n- 要点一\\n# 下一步\\n- 要点二'",
+                },
+            },
+            required: ["path", "outline"],
+        },
+        execute: async (args) => {
+            const r = await officeTools.exportPptx(String(args.path), String(args.outline));
             return { ok: true, summary: r.summary, data: r };
         },
     },
@@ -398,6 +424,7 @@ rpc.register("initialize", (params) => {
                 "office.parse",
                 "office.exportDocx",
                 "office.exportXlsx",
+                "office.exportPptx",
                 "office.readXlsx",
                 "schedule.list",
                 "schedule.create",
@@ -783,6 +810,13 @@ rpc.register("office.exportXlsx", async (params) => {
     if (!p?.path || !Array.isArray(p.rows))
         throw new RpcError(RpcErrorCodes.InvalidParams, "需要 path 与 rows");
     return officeTools.exportXlsx(p.path, p.rows, p.sheetName);
+});
+rpc.register("office.exportPptx", async (params) => {
+    requireInitialized();
+    const p = params as { path?: string; outline?: string };
+    if (!p?.path || typeof p.outline !== "string")
+        throw new RpcError(RpcErrorCodes.InvalidParams, "需要 path 与 outline");
+    return officeTools.exportPptx(p.path, p.outline);
 });
 
 /** T2.3 工件表格：结构化读取 xlsx（前端表格编辑器数据源） */
