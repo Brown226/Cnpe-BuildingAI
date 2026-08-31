@@ -17,6 +17,7 @@ import { Readable, Transform } from "node:stream";
 import { GatewayService } from "./gateway.service";
 import { GatewayUsageService } from "./gateway-usage.service";
 import { DesktopModelCatalogService } from "./desktop-model-catalog.service";
+import { DesktopQuotaService } from "./desktop-quota.service";
 
 /**
  * 桌面模型网关控制器（ADR-05）
@@ -41,6 +42,7 @@ export class GatewayWebController {
         private readonly gatewayService: GatewayService,
         private readonly usageService: GatewayUsageService,
         private readonly catalogService: DesktopModelCatalogService,
+        private readonly quotaService: DesktopQuotaService,
     ) {}
 
     /**
@@ -98,6 +100,22 @@ export class GatewayWebController {
     ): Promise<void> {
         const userId = playground?.id ?? "anonymous";
         try {
+            // B2 配额阻断判定：仅 blockEnabled 且超额的部门生效（默认只告警，30s 缓存）
+            const deptId = await this.usageService.resolveDepartment(userId);
+            if (await this.quotaService.isBlocked(deptId)) {
+                res.status(429);
+                res.setHeader("content-type", "application/json");
+                res.end(
+                    JSON.stringify({
+                        error: {
+                            message: `本月部门模型用量配额已超限（部门 ${deptId}），请联系管理员调整预算。`,
+                            type: "quota_exceeded",
+                            code: "quota_exceeded",
+                        },
+                    }),
+                );
+                return;
+            }
             // body-parser 已解析为对象——重新序列化转发，保持上游协议兼容
             const bodyText =
                 req.body !== undefined && req.body !== null ? JSON.stringify(req.body) : undefined;
@@ -127,6 +145,7 @@ export class GatewayWebController {
                         cacheWriteTokens: parsed.usage?.cacheWriteTokens ?? 0,
                         source: "gateway",
                     })
+                    .then(() => this.quotaService.evaluateAfterRecord(deptId).catch(() => undefined))
                     .catch(() => undefined);
                 if (parsed.usage) {
                     this.logger.log(
@@ -137,7 +156,7 @@ export class GatewayWebController {
                 return;
             }
             if (upstream.body) {
-                this.pipeStreamWithMetering(upstream, res, { userId, meta, req, startedAt });
+                this.pipeStreamWithMetering(upstream, res, { userId, meta, req, startedAt, deptId });
             } else {
                 res.end();
             }
@@ -160,6 +179,7 @@ export class GatewayWebController {
             meta: { mode?: string; sessionId?: string };
             req: Request;
             startedAt: number;
+            deptId?: string;
         },
     ): void {
         const chunks: Buffer[] = [];
@@ -193,6 +213,7 @@ export class GatewayWebController {
                     cacheWriteTokens: parsed?.usage?.cacheWriteTokens ?? 0,
                     source: "gateway",
                 })
+                .then(() => this.quotaService.evaluateAfterRecord(ctx.deptId).catch(() => undefined))
                 .catch(() => undefined);
         };
 

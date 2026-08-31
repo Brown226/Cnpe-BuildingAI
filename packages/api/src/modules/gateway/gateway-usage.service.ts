@@ -191,8 +191,8 @@ export class GatewayUsageService {
         return { items, total };
     }
 
-    /** 查询用户主部门（首条绑定），带进程内缓存 */
-    private async resolveDepartment(userId?: string): Promise<string | undefined> {
+    /** 查询用户主部门（首条绑定），带进程内缓存（网关阻断判定共用，public） */
+    async resolveDepartment(userId?: string): Promise<string | undefined> {
         if (!userId) return undefined;
         if (this.deptCache.has(userId)) return this.deptCache.get(userId) ?? undefined;
         try {
