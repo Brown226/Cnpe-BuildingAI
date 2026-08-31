@@ -1,0 +1,1 @@
+var e={WECHAT:1,ALIPAY:2};export{e as t};
