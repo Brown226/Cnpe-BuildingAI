@@ -8,17 +8,47 @@
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
-// Tauri v2：事件收发须显式引入 trait（emit/listen 均挂在 Emitter 上）
-use tauri::Emitter;
+// Tauri v2：事件收发须显式引入 trait（emit/listen 均挂在 Emitter 上）；path() 挂在 Manager 上
+use tauri::{Emitter, Manager};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
+    path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
         atomic::{AtomicI64, Ordering},
         mpsc, Arc, Mutex,
     },
 };
+
+/// 随包自包含运行时（打包期经 bundle.resources 装配到 resource_dir）。
+///
+/// 布局（由 scripts/build-sidecar-bundle.mjs 产出）：
+/// `<resource_dir>/agent-core-runtime/node(.exe)` + `<...>/agent-core/dist/index.js`
+struct BundledRuntime {
+    node: PathBuf,
+    script: PathBuf,
+    cwd: PathBuf,
+}
+
+/// 探测随包运行时；开发环境（未打包）不存在该目录，返回 None 走系统 node。
+fn bundled_runtime(app: &tauri::AppHandle) -> Option<BundledRuntime> {
+    const NODE_EXE: &str = if cfg!(windows) { "node.exe" } else { "node" };
+    let base = app.path().resource_dir().ok()?.join("agent-core-runtime");
+    if !base.is_dir() {
+        return None;
+    }
+    let node = base.join(NODE_EXE);
+    if !node.is_file() {
+        return None;
+    }
+    let script = base.join("agent-core").join("dist").join("index.js");
+    if !script.is_file() {
+        return None;
+    }
+    let cwd = base.join("agent-core");
+    Some(BundledRuntime { node, script, cwd })
+}
 
 #[derive(Default)]
 pub struct AgentBridgeState {
@@ -41,8 +71,9 @@ struct RpcLine {
 
 /// 拉起 sidecar 并启动 stdout 读线程。
 ///
-/// script 参数缺省时按开发目录约定解析（../../../@buildingai/agent-core/dist/index.js，
-/// 相对 tauri.conf.json 所在的 src-tauri 目录）；node 可执行文件默认 "node"。
+/// 解析链：显式参数 → 随包自包含运行时（resource_dir/agent-core-runtime，打包态）
+/// → 开发目录约定（default_script_path）+ 系统 node（开发兜底）。
+/// script/node_bin/cwd 参数保留用于开发调试覆盖。
 #[tauri::command]
 pub fn agent_start(
     state: tauri::State<'_, AgentBridgeState>,
@@ -56,27 +87,46 @@ pub fn agent_start(
         return Ok(()); // 幂等：已在运行
     }
 
-    let script_path = script.unwrap_or_else(default_script_path);
+    // 解析顺序：显式参数 → 随包自包含运行时（打包态）→ 开发目录约定 / 系统 node
+    let bundled = bundled_runtime(&app);
+    let script_path = script
+        .or_else(|| bundled.as_ref().map(|b| b.script.to_string_lossy().into_owned()))
+        .unwrap_or_else(default_script_path);
     if !std::path::Path::new(&script_path).exists() {
         return Err(format!("sidecar 入口不存在: {script_path}"));
     }
 
-    let working_dir = cwd.unwrap_or_else(|| {
-        std::path::Path::new(&script_path)
-            .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| ".".to_string())
-    });
+    let explicit_node = node_bin.is_some();
+    let node_path = node_bin
+        .or_else(|| bundled.as_ref().map(|b| b.node.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "node".into());
 
-    let mut child = Command::new(node_bin.unwrap_or_else(|| "node".into()))
+    let working_dir = cwd
+        .or_else(|| bundled.as_ref().map(|b| b.cwd.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| {
+            std::path::Path::new(&script_path)
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| ".".to_string())
+        });
+
+    let mut child = Command::new(&node_path)
         .arg(&script_path)
         .current_dir(&working_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("启动 sidecar 失败: {e}"))?;
+        .map_err(|e| {
+            if bundled.is_none() && !explicit_node {
+                format!(
+                    "启动 sidecar 失败: {e}（未检测到随包运行时，且系统可能未安装 Node——请重新安装客户端或安装 Node 22+）"
+                )
+            } else {
+                format!("启动 sidecar 失败: {e}")
+            }
+        })?;
 
     let stdout = child.stdout.take().ok_or("无法获取 sidecar stdout")?;
     let stdin = child.stdin.take().ok_or("无法获取 sidecar stdin")?;
