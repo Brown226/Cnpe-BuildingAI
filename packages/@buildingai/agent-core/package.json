@@ -22,6 +22,7 @@
         "lint": "eslint . --quiet",
         "lint:fix": "eslint . --fix",
         "smoke": "node scripts/smoke.mjs",
+        "test:unit": "node --test scripts/*.test.mjs",
         "smoke:office": "node scripts/smoke-office-parse.mjs",
         "test:e2e": "node scripts/e2e-extensions.mjs",
         "test:e2e:live": "node scripts/e2e-extensions.mjs --live",
