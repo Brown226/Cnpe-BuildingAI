@@ -47,6 +47,7 @@
         "lint:fix": "turbo run lint:fix",
         "format": "prettier --write \"**/*.{ts,tsx,md}\"",
         "typecheck": "turbo run check-types",
+        "verify": "turbo run check-types && cd packages/@buildingai/agent-core && pnpm run test:unit && pnpm run smoke && cd ../../api && pnpm test",
         "clean": "rimraf ./.turbo && turbo run clean",
         "sync-env": "node scripts/sync-env.mjs",
         "skills": "node scripts/sync-skills.mjs",
