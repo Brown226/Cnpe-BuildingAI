@@ -34,6 +34,10 @@ const apiHttpClient = createHttpClient({
         getAccessToken: async () => {
             return useAuthStore.getState().auth.token || "";
         },
+        // 滑动续期写回（延迟引用 useAuthStore，回调运行时已初始化）
+        onTokenRefreshed: (token) => {
+            useAuthStore.getState().authActions.setToken(token);
+        },
         onAuthError: () => {},
         onError: () => {},
     },

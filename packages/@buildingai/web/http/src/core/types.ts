@@ -76,6 +76,12 @@ export interface HttpHooks {
      */
     refreshAccessToken?: () => boolean | Promise<boolean>;
     /**
+     * Called when the server issued a sliding-refresh new token via the
+     * `x-new-token` response header (see AuthGuard.handleTokenRefresh).
+     * The caller should persist the new token (e.g. update the auth store).
+     */
+    onTokenRefreshed?: (token: string) => void | Promise<void>;
+    /**
      * Called when a request fails (after all retries).
      * Receives the normalized HttpError. Skipped for aborted requests and silent requests.
      */

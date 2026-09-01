@@ -277,6 +277,12 @@ export function DesktopProvider({ children }: { children: ReactNode }) {
                 const res = await fetch(`${serverBase}/api/desktop/heartbeat`, {
                     headers: { Authorization: token ? `Bearer ${token}` : "" },
                 });
+                // 滑动续期保活：心跳响应携带服务端下发的新 token 时写回 auth store
+                // （服务器 AuthGuard 对带 Authorization 的非公开路由统一挂 x-new-token 头）
+                const newToken = res.headers.get("x-new-token");
+                if (newToken) {
+                    useAuthStore.getState().authActions.setToken(newToken);
+                }
                 if (!disposed) setOnline(res.ok);
             } catch {
                 if (!disposed) setOnline(false);

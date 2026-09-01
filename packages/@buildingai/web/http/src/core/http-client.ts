@@ -95,6 +95,27 @@ function isAccessError(error: HttpError): boolean {
     return String(businessCode) === "40203";
 }
 
+/**
+ * 服务端滑动续期响应头（与 api AuthGuard.handleTokenRefresh 对齐）：
+ * token 接近过期时服务端经该头下发新 token，客户端消费并持久化。
+ */
+const NEW_TOKEN_HEADER = "x-new-token";
+
+function readResponseHeader(
+    headers: Record<string, unknown> | undefined,
+    name: string,
+): string | undefined {
+    if (!headers) return undefined;
+    // AxiosHeaders 实例：get() 不区分大小写
+    if (typeof (headers as { get?: (n: string) => unknown }).get === "function") {
+        const viaGet = (headers as { get: (n: string) => unknown }).get(name);
+        if (typeof viaGet === "string" && viaGet) return viaGet;
+    }
+    // 普通对象回退：axios 规范化后 key 为小写
+    const viaIndex = headers[name.toLowerCase()] ?? headers[name];
+    return typeof viaIndex === "string" && viaIndex ? viaIndex : undefined;
+}
+
 export class HttpClient {
     private readonly axios: AxiosInstance;
     private readonly options: HttpClientOptions;
@@ -258,7 +279,14 @@ export class HttpClient {
         });
 
         this.axios.interceptors.response.use(
-            (res) => res,
+            (res) => {
+                // 服务端滑动续期：消费 x-new-token，写入调用方存储（auth store / 插件 cookie）
+                const refreshed = readResponseHeader(res.headers as Record<string, unknown>, NEW_TOKEN_HEADER);
+                if (refreshed) {
+                    void this.options.hooks?.onTokenRefreshed?.(refreshed);
+                }
+                return res;
+            },
             (error: unknown) => Promise.reject(error),
         );
     }

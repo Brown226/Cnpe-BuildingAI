@@ -54,6 +54,10 @@ export const apiHttpClient = createHttpClient({
         getAccessToken: async () => {
             return useAuthStore.getState().auth.token || "";
         },
+        // 服务端滑动续期：把 x-new-token 写回 auth store（persist + 插件 cookie 同步）
+        onTokenRefreshed: (token) => {
+            useAuthStore.getState().authActions.setToken(token);
+        },
         onAuthError: handleAuthError,
         onAccessError: handleAccessError,
         onError: handleHttpError,
@@ -67,6 +71,9 @@ export const consoleHttpClient = createHttpClient({
     hooks: {
         getAccessToken: async () => {
             return useAuthStore.getState().auth.token || "";
+        },
+        onTokenRefreshed: (token) => {
+            useAuthStore.getState().authActions.setToken(token);
         },
         onAuthError: handleAuthError,
         onAccessError: handleAccessError,
@@ -120,6 +127,9 @@ export function createPluginHttpClients(pluginIdentifier?: string) {
             getAccessToken: async () => {
                 return useAuthStore.getState().auth.token || "";
             },
+            onTokenRefreshed: (token) => {
+                useAuthStore.getState().authActions.setToken(token);
+            },
             onAuthError: handlePluginAuthError,
             onAccessError: handleAccessError,
             onError: handleHttpError,
@@ -133,6 +143,9 @@ export function createPluginHttpClients(pluginIdentifier?: string) {
         hooks: {
             getAccessToken: async () => {
                 return useAuthStore.getState().auth.token || "";
+            },
+            onTokenRefreshed: (token) => {
+                useAuthStore.getState().authActions.setToken(token);
             },
             onAuthError: handlePluginAuthError,
             onAccessError: handleAccessError,
