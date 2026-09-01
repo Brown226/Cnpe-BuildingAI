@@ -187,7 +187,9 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
 
       const conversationId = conversationIdRef.current;
-      if (conversationId) {
+      // 桌面模式：会话正文仅存本地 sidecar（ADR-07），conversationIdRef 是本地 uuid，
+      // 查云端会话信息必 404，跳过
+      if (conversationId && !isDesktop()) {
         void getConversationInfo(conversationId)
           .then((info) => {
             queryClient.setQueryData(["conversation", conversationId], info);
@@ -400,6 +402,7 @@ export function useChatStream(options: UseChatStreamOptions): UseChatStreamRetur
   const hydrateLastAssistantUsageFromServer = useCallback(async (): Promise<void> => {
     const conversationId = conversationIdRef.current;
     if (!conversationId) return;
+    if (isDesktop()) return; // 桌面本地会话：用量已在引擎 usage 事件中实时展示，无云端记录可回填
 
     const lastAssistant = [...messagesRef.current].reverse().find((m) => m.role === "assistant");
     if (!lastAssistant) return;

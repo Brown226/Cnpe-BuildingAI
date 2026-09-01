@@ -4,6 +4,8 @@ import type { UIMessage } from "ai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { isDesktop } from "@/services/desktop/desktop-api";
+
 export interface UseMessagesPagingReturn {
   isLoadingMessages: boolean;
   isLoadingMoreMessages: boolean;
@@ -27,13 +29,19 @@ export function useMessagesPaging({
   const navigate = useNavigate();
   const pageSize = 20;
 
+  // 桌面模式：/chat/:id 是本地 sidecar 会话（uuid 仅前端语义），
+  // 云端没有该会话，查历史必 404，禁用云端消息查询
   const {
     data: messagesData,
     isLoading: isLoadingMessages,
     error,
   } = useConversationMessagesQuery(
     { conversationId: currentThreadId || "", page: 1, pageSize },
-    { enabled: !!currentThreadId, refetchOnWindowFocus: false, retry: false },
+    {
+      enabled: !!currentThreadId && !isDesktop(),
+      refetchOnWindowFocus: false,
+      retry: false,
+    },
   );
 
   useEffect(() => {
@@ -171,6 +179,7 @@ export function useMessagesPaging({
   const loadMoreMessages = useCallback(() => {
     const conversationId = currentThreadId;
     if (!conversationId) return;
+    if (isDesktop()) return; // 桌面本地会话无云端历史
     if (!hasMoreMessages) return;
     if (isLoadingMoreMessages) return;
     if (loadMoreLockRef.current) return;

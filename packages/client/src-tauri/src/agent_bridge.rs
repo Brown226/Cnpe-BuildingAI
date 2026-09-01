@@ -47,7 +47,42 @@ fn bundled_runtime(app: &tauri::AppHandle) -> Option<BundledRuntime> {
         return None;
     }
     let cwd = base.join("agent-core");
-    Some(BundledRuntime { node, script, cwd })
+    Some(BundledRuntime {
+        node: simplify_path(&node),
+        script: simplify_path(&script),
+        cwd: simplify_path(&cwd),
+    })
+}
+
+/// Windows verbatim 路径（`\\?\E:\...`，resource_dir 常见返回形态）会击穿 node.exe
+/// 的模块解析器：`toRealPath` 在 `\\?\` 前缀上误判，报 EISDIR lstat 'E:' 并秒退。
+/// 传给外部子进程前必须转成普通路径；UNC 场景（`\\?\UNC\server\share`）还原为 `\\server\share`。
+fn simplify_path(p: &std::path::Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    let simplified = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        s.into_owned()
+    };
+    PathBuf::from(simplified)
+}
+
+/// sidecar 运行日志落盘（app_log_dir/sidecar.log）：记录启动决策与 stderr 全量输出。
+/// 日志目录不可用时静默跳过——日志失败不能反噬主链路。
+fn append_sidecar_log(app: &tauri::AppHandle, line: &str) {
+    let Ok(dir) = app.path().app_log_dir() else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("sidecar.log");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write as _;
+        let _ = writeln!(f, "[{ts}] {line}");
+    }
 }
 
 #[derive(Default)]
@@ -89,10 +124,19 @@ pub fn agent_start(
 
     // 解析顺序：显式参数 → 随包自包含运行时（打包态）→ 开发目录约定 / 系统 node
     let bundled = bundled_runtime(&app);
+    append_sidecar_log(
+        &app,
+        &format!(
+            "agent_start: bundled_runtime={:?} script_param={:?} node_param={:?} cwd_param={:?}",
+            bundled.as_ref().map(|b| b.script.to_string_lossy().into_owned()),
+            script, node_bin, cwd
+        ),
+    );
     let script_path = script
         .or_else(|| bundled.as_ref().map(|b| b.script.to_string_lossy().into_owned()))
         .unwrap_or_else(default_script_path);
     if !std::path::Path::new(&script_path).exists() {
+        append_sidecar_log(&app, &format!("agent_start: 入口不存在: {script_path}"));
         return Err(format!("sidecar 入口不存在: {script_path}"));
     }
 
@@ -116,9 +160,10 @@ pub fn agent_start(
         .current_dir(&working_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
+            append_sidecar_log(&app, &format!("agent_start: spawn 失败: {e}"));
             if bundled.is_none() && !explicit_node {
                 format!(
                     "启动 sidecar 失败: {e}（未检测到随包运行时，且系统可能未安装 Node——请重新安装客户端或安装 Node 22+）"
@@ -127,6 +172,26 @@ pub fn agent_start(
                 format!("启动 sidecar 失败: {e}")
             }
         })?;
+
+    append_sidecar_log(
+        &app,
+        &format!(
+            "agent_start: node={node_path} script={script_path} cwd={working_dir}"
+        ),
+    );
+
+    // stderr 接管落盘：sidecar 启动失败/引擎报错不再黑洞（排查链路的关键观测点）
+    let stderr = child.stderr.take();
+    if let Some(stderr) = stderr {
+        let log_app = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                append_sidecar_log(&log_app, &format!("sidecar(stderr): {line}"));
+            }
+        });
+    }
 
     let stdout = child.stdout.take().ok_or("无法获取 sidecar stdout")?;
     let stdin = child.stdin.take().ok_or("无法获取 sidecar stdin")?;
